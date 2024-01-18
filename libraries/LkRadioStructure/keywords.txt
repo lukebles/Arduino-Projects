@@ -1,0 +1,27 @@
+#######################################
+# Syntax Coloring Map For LkRadioStructure
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+LkRadioStructure        KEYWORD1
+RadioInitializer        KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+initialize              KEYWORD2
+globalSetup             KEYWORD2
+have_structure          KEYWORD2
+getStructure            KEYWORD2
+sendStructure           KEYWORD2
+getMicrosec             KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+NOTHING					LITERAL1

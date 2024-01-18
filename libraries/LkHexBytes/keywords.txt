@@ -1,0 +1,23 @@
+#######################################
+# Keywords File for LkHexBytes Library
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+dumpByteArray				KEYWORD1
+hexCharacterStringToBytes	KEYWORD1
+LkHexBytes					KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+MaxByteArraySize			KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+NOTHING						LITERAL1

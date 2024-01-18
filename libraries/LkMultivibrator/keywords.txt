@@ -1,0 +1,25 @@
+#######################################
+# LkMultivibrator Keywords
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+LkMultivibrator		KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+start			KEYWORD2
+stop			KEYWORD2
+expired			KEYWORD2
+reset			KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+ASTABLE			LITERAL1
+MONOSTABLE		LITERAL1
