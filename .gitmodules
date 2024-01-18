@@ -1,0 +1,21 @@
+[submodule "libraries/MIDI_Library"]
+	path = libraries/MIDI_Library
+	url = https://github.com/FortySevenEffects/arduino_midi_library
+[submodule "libraries/ServoTimer2"]
+	path = libraries/ServoTimer2
+	url = https://github.com/nabontra/ServoTimer2
+[submodule "libraries/SevSeg"]
+	path = libraries/SevSeg
+	url = https://github.com/DeanIsMe/SevSeg
+[submodule "libraries/Time"]
+	path = libraries/Time
+	url = https://github.com/PaulStoffregen/Time
+[submodule "libraries/Timezone"]
+	path = libraries/Timezone
+	url = https://github.com/JChristensen/Timezone
+[submodule "libraries/VirtualWire"]
+	path = libraries/VirtualWire
+	url = https://github.com/tenbaht/VirtualWire
+[submodule "libraries/WebSockets_Generic"]
+	path = libraries/WebSockets_Generic
+	url = https://github.com/khoih-prog/WebSockets_Generic
