@@ -1,28 +1,22 @@
     #include <ESP8266WebServer.h>
     #include <WebSocketsServer_Generic.h>
 
-    /*
-    progetto evoluto 7 dicembre 2023(!)
+    /* 
+      It connects to an existing access point and makes itself available through the assigned IP
     */
-    const char* ssid = "iPhone di Luca"; // Sostituisci con il nome della tua rete
-    const char* password = "Catgnes-9"; // Sostituisci con la tua password
+
+    const char* ssid = "iPhone di Luca";           // Sostituisci con il nome della tua rete
+    const char* password = "Catgnes-9";  // Sostituisci con la tua password
 
     ESP8266WebServer server(80);
     WebSocketsServer webSocket = WebSocketsServer(81);
 
-    unsigned long previousMillis = 0; // Memorizza l'ultima volta che abbiamo aggiornato
-    const long interval = 500; // Intervallo di tempo (in millisecondi)
-
-
     void setup() {
       Serial.begin(115200);
-      delay(3000);
-      Serial.println("");
-      Serial.println("Start");
       
       WiFi.begin(ssid, password); // Connessione alla rete Wi-Fi
       while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
+        delay(500);
         Serial.print(".");
       }
       Serial.println("");
@@ -74,94 +68,95 @@
 
   // initializeSliders --> updateSlider --> updateBackgroundColor
   String getScript(){
-    String html = ""    
-        "function updateSlider(slider) {"
-            "var container = slider.parentElement;"
-            "var valueLabel = container.querySelector('.value-label');"
-            "valueLabel.textContent = slider.value;"
-            "updateBackgroundColor(slider, container);"
-            "if (debounceTimer) {"
-              " clearTimeout(debounceTimer);"
-            "}"
-            "debounceTimer = setTimeout(function() {"
-                "var message = slider.id + ',' + slider.value;"
-                "webSocket.send(message);"
-            "}, 100);"
-        "}"
-        "function updateBackgroundColor(slider, container) {"
-            "var value = parseInt(slider.value, 10);" // Assicurati che sia un numero
-            "var max = parseInt(slider.max, 10);" // Assicurati che sia un numero
-            "var percentage = value / max;"
-            "var intensity = parseInt(255 - (percentage * 255),10);"
-            "var color = 'rgb(' + intensity + ', ' + intensity + ', 255)';"
-            "container.style.backgroundColor = color;"
-        "}"
-        "function initializeSliders() {"
-            "var sliders = document.querySelectorAll('.vertical-slider');"
-            "for (var i = 0; i < sliders.length; i++) {" // Uso di ciclo for invece di forEach
-                "updateSlider(sliders[i]);"
-            "}"
-        "}"
-        "window.onload = function() {"
-          "setTimeout(initializeSliders,100);"
-        "};";
+    String html = R"(   
+        function updateSlider(slider) {
+            var container = slider.parentElement;
+            var valueLabel = container.querySelector('.value-label');
+            valueLabel.textContent = slider.value;
+            updateBackgroundColor(slider, container);
+            if (debounceTimer) {
+               clearTimeout(debounceTimer);
+            }
+            debounceTimer = setTimeout(function() {
+                var message = slider.id + ',' + slider.value;
+                webSocket.send(message);
+            }, 100);
+        }
+        function updateBackgroundColor(slider, container) {
+            var value = parseInt(slider.value, 10); // Assicurati che sia un numero
+            var max = parseInt(slider.max, 10); // Assicurati che sia un numero
+            var percentage = value / max;
+            var intensity = parseInt(255 - (percentage * 255),10);
+            var color = 'rgb(' + intensity + ', ' + intensity + ', 255)';
+            container.style.backgroundColor = color;
+        }
+        function initializeSliders() {
+            var sliders = document.querySelectorAll('.vertical-slider');
+            for (var i = 0; i < sliders.length; i++) { // Uso di ciclo for invece di forEach
+                updateSlider(sliders[i]);
+            }
+        }
+        window.onload = function() {
+          setTimeout(initializeSliders,100);
+        })";
     return html;
   }
 
   String getHead(){
-    String html = "<title>DCO1 Mixer Controls</title>"
-    "<style>"
-    "body {"
-      "font-family: Arial, sans-serif;"
-      "text-align: center;"
-    "}"
-    ".containers-wrapper {"
-      "display: flex;"
-      "flex-wrap: wrap; /* Permette agli elementi di andare a capo */"
-    "}"
-    ".main-container {"
-      "display: inline-block;"
-      "border: 1px solid #ddd;"
-      "padding: 5px; /* Riduzione del padding */"
-      "margin-top: 20px;"
-      "font-size: 8px;"
-    "}"
-    ".dco-title {"
-      "background-color: black;"
-      "color: white;"
-      "padding: 5px;"
-      "font-size: 8px;"
-      "text-align: center;"
-      "width: 100%;"
-      "box-sizing: border-box;"
-      "margin-bottom: 5px; /* Riduzione dello spazio sotto il titolo */"
-    "}"
-    ".control-container {"
-      "display: inline-block;"
-      "vertical-align: top;"
-      "margin: 0; /* Rimozione del margine esterno */"
-      "padding: 5px; /* Riduzione del padding interno */"
-      "border: 1px solid #ddd;"
-      "height: auto; /* Altezza automatica in base al contenuto */"
-      "min-height: 100px; /* Altezza minima per ospitare le slider */"
-      "font-size: 8px;"
-      "position: relative;"
-    "}"
-    ".vertical-slider {"
-      "width: 20px;"
-      "height: 100px;"
-      "-webkit-appearance: slider-vertical;"
-      "writing-mode: bt-lr;"
-      "font-size: 8px;"
-    "}"
-    ".value-label {"
-      "position: absolute; /* Posizionamento assoluto rispetto al suo contenitore */"
-      "bottom: -20px; /* Posiziona l'etichetta sotto al cursore */"
-      "left: 50%; /* Centra l'etichetta */"
-      "transform: translateX(-50%); /* Allinea centralmente l'etichetta */"
-      "white-space: nowrap; /* Evita l'a capo dell'etichetta */"
-    "}"
-    "</style>";
+    String html = R"(
+    <title>DCO1 Mixer Controls</title>
+    <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    .containers-wrapper {
+      display: flex;
+      flex-wrap: wrap; /* Permette agli elementi di andare a capo */
+    }
+    .main-container {
+      display: inline-block;
+      border: 1px solid #ddd;
+      padding: 5px; /* Riduzione del padding */
+      margin-top: 20px;
+      font-size: 8px;
+    }
+    .dco-title {
+      background-color: black;
+      color: white;
+      padding: 5px;
+      font-size: 8px;
+      text-align: center;
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 5px; /* Riduzione dello spazio sotto il titolo */
+    }
+    .control-container {
+      display: inline-block;
+      vertical-align: top;
+      margin: 0; /* Rimozione del margine esterno */
+      padding: 5px; /* Riduzione del padding interno */
+      border: 1px solid #ddd;
+      height: auto; /* Altezza automatica in base al contenuto */
+      min-height: 100px; /* Altezza minima per ospitare le slider */
+      font-size: 8px;
+      position: relative;
+    }
+    .vertical-slider {
+      width: 20px;
+      height: 100px;
+      -webkit-appearance: slider-vertical;
+      writing-mode: bt-lr;
+      font-size: 8px;
+    }
+    .value-label {
+      position: absolute; /* Posizionamento assoluto rispetto al suo contenitore */
+      bottom: -20px; /* Posiziona l'etichetta sotto al cursore */
+      left: 50%; /* Centra l'etichetta */
+      transform: translateX(-50%); /* Allinea centralmente l'etichetta */
+      white-space: nowrap; /* Evita l'a capo dell'etichetta */
+    }
+    </style>)";
     return html;
   }
 
