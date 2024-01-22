@@ -1,10 +1,7 @@
-
-
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include <vector>
-std::vector<std::pair<int, int>> coordinates; // Per memorizzare le coordinate
-
+std::vector<int> points_cont; // Per memorizzare le coordinate
 
 // ===================================
 // change ssid and password as needed
@@ -75,27 +72,57 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length)
 }
 
 void handleSerialMessage(String message) {
-  if (message == "FINE") {
-    sendCoordinatesToClient();
-    coordinates.clear(); // Pulisci le coordinate dopo l'invio
-  } else {
-    int commaIndex = message.indexOf(',');
-    if (commaIndex != -1) {
-      int x = message.substring(0, commaIndex).toInt();
-      int y = message.substring(commaIndex + 1).toInt();
-      coordinates.push_back(std::make_pair(x, y)); // Memorizza la coppia di coordinate
+  bool isNumeric = true;
+
+  // Controlla se ogni carattere nella stringa è una cifra
+  for (unsigned int i = 0; i < message.length(); i++) {
+    if (!isDigit(message[i])) {
+      isNumeric = false;
+      break;
     }
   }
+
+  // Procedi solo se la stringa è numerica
+  if (isNumeric) {
+    int value = message.toInt(); // Converti la stringa in un numero intero
+    points_cont.push_back(value); // Aggiungi il valore al buffer
+    
+    // Mantieni solo gli ultimi 128 elementi nel buffer
+    if (points_cont.size() > 128) {
+      points_cont.erase(points_cont.begin());
+    }
+
+    // Aggiorna il grafico ad ogni ricezione
+    sendCoordinatesToClient();
+  } 
 }
+
+
 
 void sendCoordinatesToClient() {
   String script = "drawPoints([";
-  for (const auto& coord : coordinates) {
-    script += "[" + String(coord.first) + ", " + String(coord.second) + "],";
+
+
+  for (int i = 0; i < 128; i++) {
+    // Calcola l'indice del valore da utilizzare
+    //int index = points_cont.size() - windowSize + i;
+
+    // Ottieni il valore dalla posizione calcolata
+    int y = points_cont[i];
+
+    // Assicurati che il valore sia valido prima di aggiungerlo
+      script += "" + String(y) + ",";
   }
+  // rimuove ultima virgola
+  script.remove(script.length() - 1);
+
   script += "]);";
+  //script = "drawPoints([100,200,300,400,500,600,700,800,900,1000,100,200,300,400,500,600,700,800,900,1000,300,400]);";
+
   webSocket.broadcastTXT(script);
 }
+
+
 
 
 String getHTML() {
@@ -120,29 +147,44 @@ String getHTML() {
 // initializeSliders --> updateSlider --> updateBackgroundColor
 String getScript() {
   String html = R"(   
-function drawPoints(points) {
+  function drawPoints(points) {
     var svg = document.getElementById('graph');
     svg.innerHTML = ''; // Pulisci il grafico prima di disegnare nuovi punti e linee
-    // Disegna le linee
-    for (var i = 0; i < points.length - 1; i++) {
-        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', points[i][0]);
-        line.setAttribute('y1', points[i][1]);
-        line.setAttribute('x2', points[i + 1][0]);
-        line.setAttribute('y2', points[i + 1][1]);
-        line.setAttribute('stroke', 'black');
-        svg.appendChild(line);
-    }
-    // Disegna i punti
-    points.forEach(function(point) {
+    var svgWidth = svg.clientWidth;
+    var svgHeight = svg.clientHeight;
+    
+    // Calcola la scala per il valore y (ad esempio, se i valori massimi sono 1023)
+    var yScale = svgHeight / 1023;
+
+    // Disegna le linee e i punti
+    for (var i = 0; i <= 127; i++) {
+        // Calcola le coordinate x e y
+        var x1 = (svgWidth / 128) * i;
+        var y1 = svgHeight - (points[i] * yScale);
+        var x2 = (svgWidth / 128) * (i + 1);
+        var y2 = svgHeight - (points[i + 1] * yScale);
+
+        if ( i < 127 ) {
+          // Crea e aggiungi la linea
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', x1);
+          line.setAttribute('y1', y1);
+          line.setAttribute('x2', x2);
+          line.setAttribute('y2', y2);
+          line.setAttribute('stroke', 'black');
+          svg.appendChild(line);
+        }
+
+        // Crea e aggiungi il punto
         var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', point[0]);
-        circle.setAttribute('cy', point[1]);
+        circle.setAttribute('cx', x1);
+        circle.setAttribute('cy', y1);
         circle.setAttribute('r', 5);
         circle.setAttribute('fill', 'red');
         svg.appendChild(circle);
-    });
+
     }
+  }
     )";
   return html;
 }
