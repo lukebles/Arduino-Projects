@@ -1,13 +1,13 @@
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include <vector>
-std::vector<int> points_cont; // Per memorizzare le coordinate
+std::vector<int> points_cont;  // Per memorizzare le coordinate
 
 // ===================================
 // change ssid and password as needed
 // ===================================
-const char* ssid = "atheros";    
-const char* password = "pw12345";  
+const char* ssid = "atheros";
+const char* password = "pw12345";
 
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -17,7 +17,7 @@ void setup() {
 
   //
   // ============================
-  // uncomment the lines below 
+  // uncomment the lines below
   // to select the desired WiFi operation type
   // ============================
   //
@@ -32,7 +32,7 @@ void setup() {
   // ** STATION **
   // (connection to an existing wifi network)
   // --------------------------
-  // WiFi.begin(ssid, password); 
+  // WiFi.begin(ssid, password);
   // while (WiFi.status() != WL_CONNECTED) {
   //   delay(500);
   //   Serial.print(".");
@@ -72,6 +72,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length)
 }
 
 void handleSerialMessage(String message) {
+  //String debugMessage = "Received: " + message;
+  String scriptDebug = "addDebugMessage('" + message + "');";
+  webSocket.broadcastTXT(scriptDebug);  // Invia il messaggio di debug al client
+
+
   bool isNumeric = true;
 
   // Controlla se ogni carattere nella stringa è una cifra
@@ -84,9 +89,9 @@ void handleSerialMessage(String message) {
 
   // Procedi solo se la stringa è numerica
   if (isNumeric) {
-    int value = message.toInt(); // Converti la stringa in un numero intero
-    points_cont.push_back(value); // Aggiungi il valore al buffer
-    
+    int value = message.toInt();   // Converti la stringa in un numero intero
+    points_cont.push_back(value);  // Aggiungi il valore al buffer
+
     // Mantieni solo gli ultimi 128 elementi nel buffer
     if (points_cont.size() > 128) {
       points_cont.erase(points_cont.begin());
@@ -94,10 +99,8 @@ void handleSerialMessage(String message) {
 
     // Aggiorna il grafico ad ogni ricezione
     sendCoordinatesToClient();
-  } 
+  }
 }
-
-
 
 void sendCoordinatesToClient() {
   String script = "drawPoints([";
@@ -111,7 +114,7 @@ void sendCoordinatesToClient() {
     int y = points_cont[i];
 
     // Assicurati che il valore sia valido prima di aggiungerlo
-      script += "" + String(y) + ",";
+    script += "" + String(y) + ",";
   }
   // rimuove ultima virgola
   script.remove(script.length() - 1);
@@ -122,9 +125,6 @@ void sendCoordinatesToClient() {
   webSocket.broadcastTXT(script);
 }
 
-
-
-
 String getHTML() {
   String html = "<!DOCTYPE html><html>";
   html += "<head>";
@@ -132,6 +132,7 @@ String getHTML() {
   html += "</head>";
   html += "<body>";
   html += "<svg id='graph' width='500' height='500' style='border:1px solid black'></svg>";
+  html += "<div><textarea id='debugConsole' rows='30' cols='80' readonly></textarea></div>";
   html += "<script>";
   html += "var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');";
   html += "webSocket.onmessage = function(event) {";
@@ -147,6 +148,27 @@ String getHTML() {
 // initializeSliders --> updateSlider --> updateBackgroundColor
 String getScript() {
   String html = R"(   
+  function addDebugMessage(message) {
+      var debugConsole = document.getElementById('debugConsole');
+      // Ottenere la data e l'ora attuali con i millisecondi
+      var now = new Date();
+      var formattedDateTime = now.getFullYear() + '-' +
+        ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + now.getDate()).slice(-2) + ' ' +
+        ('0' + now.getHours()).slice(-2) + ':' +
+        ('0' + now.getMinutes()).slice(-2) + ':' +
+        ('0' + now.getSeconds()).slice(-2) + '.' +
+        ('00' + now.getMilliseconds()).slice(-3);      
+      // Convertire il messaggio in esadecimale
+      var hexMessage = '';
+      for (var i = 0; i < message.length; i++) {
+          hexMessage += message.charCodeAt(i).toString(16) + ' ';
+      }
+      // Aggiungere la data, l'ora e il messaggio in esadecimale alla console
+      debugConsole.value += '' + formattedDateTime + ' ' + ' ' + message + ' ' + hexMessage + '\n';
+      // Scorre automaticamente in basso
+      debugConsole.scrollTop = debugConsole.scrollHeight;
+  }
   function drawPoints(points) {
     var svg = document.getElementById('graph');
     svg.innerHTML = ''; // Pulisci il grafico prima di disegnare nuovi punti e linee
@@ -196,5 +218,3 @@ String getHead() {
     </style>)";
   return html;
 }
-
-
