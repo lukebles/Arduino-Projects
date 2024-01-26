@@ -15,6 +15,8 @@ void setup() {
   delay(5000);
 }
 
+int contatore = 0;
+
 void loop() {
   do {
     // Genera due numeri casuali tra 0 e 500
@@ -26,7 +28,16 @@ void loop() {
     Serial.println(myString);
      //digitalWrite(LED_BUILTIN, LOW);
     // digitalWrite(LED_BUILTIN, HIGH);
-    delay(100); // ritardo di 1 secondo per 256 valori all'incirca
+
+    contatore += 1;
+
+    if (contatore < 10){
+      delay(95); // funzionamento regolare
+    } else {
+      contatore = 0;
+      delay(190); // simula una mancata ricezione, ritardando l'invio successivo
+    }
+    
     // digitalWrite(LED_BUILTIN, LOW);
   } while (true);
 
