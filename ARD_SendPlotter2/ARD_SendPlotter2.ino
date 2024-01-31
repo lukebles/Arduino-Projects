@@ -25,17 +25,17 @@ void loop() {
     String myString = String(y) + "\n";
     // Invia le coordinate sulla porta SoftwareSerial
      //digitalWrite(LED_BUILTIN, HIGH);
-    Serial.println(myString);
+    Serial.print(myString);
      //digitalWrite(LED_BUILTIN, LOW);
     // digitalWrite(LED_BUILTIN, HIGH);
 
     contatore += 1;
 
     if (contatore < 10){
-      delay(95); // funzionamento regolare
+      delay(950); // funzionamento regolare
     } else {
       contatore = 0;
-      delay(190); // simula una mancata ricezione, ritardando l'invio successivo
+      delay(950); // simula una mancata ricezione, ritardando l'invio successivo
     }
     
     // digitalWrite(LED_BUILTIN, LOW);

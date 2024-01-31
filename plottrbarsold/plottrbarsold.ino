@@ -1,4 +1,3 @@
-#include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include <vector>
@@ -12,7 +11,7 @@ unsigned long lastDataTime = 0;  // Tempo dell'ultimo dato ricevuto
 // change ssid and password as needed
 // ===================================
 const char* ssid = "sid";
-const char* password = "pw12345678";
+const char* password = "pw12345";
 
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -30,7 +29,6 @@ void setup() {
   // ** AP **
   // (creates a Wifi Access Point)
   // --------------------------
-  WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid, password);
   // --------------------------
   //
@@ -92,6 +90,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length)
 }
 
 void handleSerialMessage(String message) {
+  Serial.println(message);
   //String debugMessage = "Received: " + message;
   String scriptDebug = "addDebugMessage('" + message + "');";
   webSocket.broadcastTXT(scriptDebug);  // Invia il messaggio di debug al client
