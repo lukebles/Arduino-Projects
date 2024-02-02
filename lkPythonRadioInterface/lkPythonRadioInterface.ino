@@ -2,6 +2,9 @@
 #include <LkHexBytes.h>
 //#include <LkMultivibrator.h>
 #include <LkBlinker.h>
+#include <LkArraylize.h>
+
+// 2 feb 2024 - inserimento del distacco ENEL direttamnte nel codice ARDUINO
 
 //
 //              |  /| backLightLCM_pin             |-------------|
@@ -43,6 +46,15 @@ LkBlinker allarme_badenia(badenia_pin,true);
 
 #define VIA_RADIO 0xAA
 #define POSSIBILE_DISTACCO_ENEL 0x01
+
+struct DataPacket{
+  uint8_t sender;
+  uint16_t countActiveWh;
+  uint16_t countReactiveWh;
+};
+
+uint16_t previous_countActiveWh = 0;
+unsigned long previous_time_ENEL = 0;
 
 void setup(){
   // dialogue with Host via serial port
@@ -86,10 +98,10 @@ void loop() {
 
   radioMessage2arduino();
 
-//===============================
-// MESSAGE PC -> ARDUINO
-//===============================
-if (msgFromPcSerialisComplete) {
+  //===============================
+  // MESSAGE PC -> ARDUINO
+  //===============================
+  if (msgFromPcSerialisComplete) {
     byte byteArray[20];
     // conversion from sequence of characters (example: "AAFA12...")
     // into array of bytes
@@ -180,6 +192,7 @@ void serialEvent() {
 void radioMessage2arduino(){
     // =================================================
   // RADIO MESSAGE -> ARDUINO -> PC
+  //                     |-----> badenia
   // the radio message is always forwarded back to the pc
   // in the form of a "hex_string" character pair
   // example byte 0x0a (\n) is sent as "0A" 
@@ -196,5 +209,38 @@ void radioMessage2arduino(){
     }
     hexstring += "\n";        // end message
     Serial.print(hexstring);  // sending the message to the PC
+
+    // ==========================================
+    // GESTIONE DEL POSSIBILE DISTACCO ENEL
+    // DIRETTAMENTE DA ARDUINO
+    // ==========================================
+    // interpreta il contenuto del pacchetto
+    // per verificare se è un pacchetto riguardante 
+    // il modulo ENEL
+    if (buflen == sizeof(DataPacket)) {
+      // la dimensione del pacchetto è la stessa
+      LkArraylize<DataPacket> dataPacketConverter;
+      // estraggo le informazioni dal pacchetto
+      DataPacket receivedData = dataPacketConverter.deArraylize(buf);
+      if (receivedData.sender == 1){
+        // dati provenienti dal modulo ENEL
+        //
+        // differenze con i valori della precedente
+        // ricezione via radio
+        unsigned long diffmillis = millis() - previous_time_ENEL;
+        previous_time_ENEL = millis();
+        unsigned long diffEnergia = receivedData.countActiveWh - previous_countActiveWh;
+        previous_countActiveWh = receivedData.countActiveWh;
+        // calcoli
+        float delta_tempo_sec = float(diffmillis)/1000.0;
+        float delta_energia_wh = float(diffEnergia);
+        // determinazione della potenza attiva istantanea
+        float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
+        // verifica se c'è pericolo di distacco energia
+        if (potenzaAttiva > 3700.0){
+          allarme_badenia.enable(); 
+        }
+      }
+    } // FINE CONTROLLO DISTACCO    
   }
 }
