@@ -232,8 +232,10 @@ void radioMessage2arduino(){
           previous_time_ENEL = millis();
           previous_countActiveWh = receivedData.countActiveWh;
         } else {
+          // funziona anche la differenza durante il passaggio da 4294967295 a 0, 1, 2, ... eccetera
           unsigned long diffmillis = millis() - previous_time_ENEL;
           previous_time_ENEL = millis();
+          // funziona anche la differenza durante il passaggio da 65535 a 0, 1, 2, ... eccetera
           unsigned long diffEnergia = receivedData.countActiveWh - previous_countActiveWh;
           previous_countActiveWh = receivedData.countActiveWh;
           // calcoli
