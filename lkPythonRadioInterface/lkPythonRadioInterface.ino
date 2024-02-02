@@ -12,7 +12,7 @@
 //              |  \|                              |             |
 //                                                 | ATMEGA328P  |
 //             ------    pushButton_pin            | w/          |
-// |||--------O      O---------------------------->| Arduino     |
+// |||--------O      O---------------------------->| Arduino     |-----> suoneria (badenia) 
 //                                                 | boot        |
 //                                                 | loader      |
 //                                                 |             |
@@ -222,23 +222,29 @@ void radioMessage2arduino(){
       LkArraylize<DataPacket> dataPacketConverter;
       // estraggo le informazioni dal pacchetto
       DataPacket receivedData = dataPacketConverter.deArraylize(buf);
-      if (receivedData.sender == 1){
+      if (receivedData.sender == 1){ // ID = 1 è il modulo ENEL
         // dati provenienti dal modulo ENEL
         //
         // differenze con i valori della precedente
         // ricezione via radio
-        unsigned long diffmillis = millis() - previous_time_ENEL;
-        previous_time_ENEL = millis();
-        unsigned long diffEnergia = receivedData.countActiveWh - previous_countActiveWh;
-        previous_countActiveWh = receivedData.countActiveWh;
-        // calcoli
-        float delta_tempo_sec = float(diffmillis)/1000.0;
-        float delta_energia_wh = float(diffEnergia);
-        // determinazione della potenza attiva istantanea
-        float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
-        // verifica se c'è pericolo di distacco energia
-        if (potenzaAttiva > 3700.0){
-          allarme_badenia.enable(); 
+        if (previous_time_ENEL == 0){
+          // prima ricezione
+          previous_time_ENEL = millis();
+          previous_countActiveWh = receivedData.countActiveWh;
+        } else {
+          unsigned long diffmillis = millis() - previous_time_ENEL;
+          previous_time_ENEL = millis();
+          unsigned long diffEnergia = receivedData.countActiveWh - previous_countActiveWh;
+          previous_countActiveWh = receivedData.countActiveWh;
+          // calcoli
+          float delta_tempo_sec = float(diffmillis)/1000.0;
+          float delta_energia_wh = float(diffEnergia);
+          // determinazione della potenza attiva istantanea
+          float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
+          // verifica se c'è pericolo di distacco energia
+          if (potenzaAttiva > 3700.0){
+            allarme_badenia.enable(); 
+          }
         }
       }
     } // FINE CONTROLLO DISTACCO    
