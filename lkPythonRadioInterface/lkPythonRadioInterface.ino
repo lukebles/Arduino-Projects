@@ -208,7 +208,10 @@ void radioMessage2arduino(){
       hexstring += String(buf[i], HEX);
     }
     hexstring += "\n";        // end message
+    
+    digitalWrite(LED_BUILTIN,HIGH);
     Serial.print(hexstring);  // sending the message to the PC
+    digitalWrite(LED_BUILTIN,LOW);
 
     // ==========================================
     // GESTIONE DEL POSSIBILE DISTACCO ENEL

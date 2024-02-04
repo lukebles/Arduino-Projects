@@ -76,6 +76,11 @@ void LkArraylize<T>::arraylize(uint8_t *array, T value) {
     }
 }
 
+//////////////////////////////////////////////////
+// QUESTA ROUTINE NON FUNZIONA DOVUTA AI PROBLEMI DI 
+// Little Endian / Big Endian dei valori
+/////////////////////////////////////////////////// 
+// 
 template<class T>
 T LkArraylize<T>::deArraylize(uint8_t *array) {
     WorkBasket basket;
