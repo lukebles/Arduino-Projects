@@ -45,50 +45,58 @@ void setup() {
 void loop() {
   server.handleClient();
   webSocket.loop();
-  
+
   if (Serial.available() > 0) {
-    String miaStringa = Serial.readStringUntil('\n');
-    // controlla se i primi due caratteri della stringa
-    // sono "01" che identifica i dati ENEL
-    if (strncmp(myCharArray, "01", 2) == 0) {
-      // converto la stringa in array di caratteri
-      // il codice è una stringa di 10 caratteri tipo "01FA4388FE"
-      char hexString[11];
-      byte barray[6]; // 5 caratteri + 1 per il terminatore nullo
-      String miaStringa = Serial.readStringUntil('\n');
-      strncpy(hexString, miaStringa.c_str(), sizeof(hexString) - 1);
-      hexString[sizeof(hexString) - 1] = '\0'; // terminazione stringa
+    String strSeriale = Serial.readStringUntil('\n');
+    // la lunghezza del dato sulla seriale deve essere adeguata a DataPacket
+    if (strSeriale.length() == sizeof(DataPacket) * 2){
+      // 10 caratteri tipo "01FA4388FE" + 1 (terminatore \0)
+      char chararray[sizeof(DataPacket) * 2 + 1];
+      // 5 caratteri + 1 per il terminatore nullo
+      byte bytearray[sizeof(DataPacket) + 1];
+      // converte la stringa in un array di caratteri char
+      strncpy(chararray, strSeriale.c_str(), sizeof(chararray) - 1);
+      // aggiunge il terminatore stringa null \0
+      chararray[sizeof(chararray) - 1] = '\0'; 
+      // converto l'array di caratteri in un array di bytes
+      LkHexBytes::hexCharacterStringToBytes(bytearray, chararray);
+      // dichiaro la classe 
+      LkArraylize<DataPacket> dearraylizator;
+      // ricompongo i dati secondo la struttura
+      DataPacket packet_rx = dearraylizator.deArraylize(bytearray);
+      // se il mittente è 1 (ENEL)
+      if (packet_rx.sender == 1){
+        // se è la prima ricezione
+        if (previous_time_ENEL == 0){
+          // riempie i valori precedenti con quelli attuali
+          previous_time_ENEL = millis();
+          previous_countActiveWh = packet_rx.countActiveWh;
+        } else {
+          // .. altimenti esegue le differenze valori attuali - precedenti
+          //
+          // verificato: funziona anche la differenza 
+          // durante il passaggio da 4294967295 a 0, 1, 2, ... eccetera
+          unsigned long diffmillis = millis() - previous_time_ENEL;
+          // verificato: funziona anche la differenza 
+          // durante il passaggio da 65535 a 0, 1, 2, ... eccetera
+          unsigned long diffEnergia = packet_rx.countActiveWh - previous_countActiveWh;
+          // calcoli della potenza dall'energia e dal tempo
+          float delta_tempo_sec = float(diffmillis)/1000.0;
+          float delta_energia_wh = float(diffEnergia);
+          float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
+          // aggiornamento degli array
 
-      LkHexBytes::hexCharacterStringToBytes(barray, hexString);
-      // valore numerico del contatore
-      uint16_t contatoreWHA = (barray[2] << 8) | barray[1];
+          // aggiornamento della pagina web
+          String script = "newSerialData()";
+          webSocket.broadcastTXT(script);
 
-      //////////////////////////////////////
-      if (previous_time_ENEL == 0){
-        // prima ricezione
-        previous_time_ENEL = millis();
-        previous_countActiveWh = contatoreWHA;
-      } else {
-        // funziona anche la differenza durante il passaggio da 4294967295 a 0, 1, 2, ... eccetera
-        unsigned long diffmillis = millis() - previous_time_ENEL;
-        previous_time_ENEL = millis();
-        // funziona anche la differenza durante il passaggio da 65535 a 0, 1, 2, ... eccetera
-        unsigned long diffEnergia = contatoreWHA - previous_countActiveWh;
-        previous_countActiveWh = contatoreWHA;
-        // calcoli
-        float delta_tempo_sec = float(diffmillis)/1000.0;
-        float delta_energia_wh = float(diffEnergia);
-        // determinazione della potenza attiva istantanea
-        float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
-
+          // aggiornamento dei dati 'precedenti'
+          previous_time_ENEL = millis();
+          previous_countActiveWh = packet_rx.countActiveWh;
+        }
       }
-      //////////////////////////////////////
-
-      String script = "newSerialData('" + miaStringa + "-" + String(contatoreWHA) + "')";
-      webSocket.broadcastTXT(script);
     }
   }
-
 }
 
 

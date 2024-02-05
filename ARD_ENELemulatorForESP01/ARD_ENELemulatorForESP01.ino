@@ -27,61 +27,42 @@ void setup() {
   }
 }
 
-uint16_t invertiByte(uint16_t val) {
-  // Usa lo shift a destra (>>) per spostare i byte meno significativi
-  // nella posizione dei byte più significativi e viceversa, con lo shift a sinistra (<<).
-  // Poi usa l'operatore OR (|) per combinare i due valori.
-  return (val >> 8) | (val << 8);
-}
+// uint16_t invertiByte(uint16_t val) {
+//   // Usa lo shift a destra (>>) per spostare i byte meno significativi
+//   // nella posizione dei byte più significativi e viceversa, con lo shift a sinistra (<<).
+//   // Poi usa l'operatore OR (|) per combinare i due valori.
+//   return (val >> 8) | (val << 8);
+// }
 
 void loop() {
   
   for(int i = 0; i < numSamples; i++) {
     int waveValue = sinusoidalWave(i);
-    countWA += waveValue;
+    //countWA += waveValue;
     
-    DataPacket mystructure_value = {1, countWA, countWR};
-    uint8_t mystructure_buffer[sizeof(DataPacket)];
-    LkArraylize<DataPacket> mystructure_o;
-    mystructure_o.arraylize(mystructure_buffer, mystructure_value);
-    
+    // carico i dati nella struttura
+    DataPacket packet_tx = {1, countWA, countWR};
+    // creo un buffer di bytes pari alla dimensione della struttura
+    uint8_t buffer[sizeof(DataPacket)];
+    // dichiaro la classe "arraylizzatrice"
+    LkArraylize<DataPacket> arraylizator;
+    // inserisco in un array di bytes i dati presenti nella struttura
+    arraylizator.arraylize(buffer, packet_tx);
+    // definisco una stringa vuota
     String hexstring = "";
     for (uint8_t i = 0; i < sizeof(DataPacket); i++){
-      if(mystructure_buffer[i] < 0x10) {
+      // di ogni byte creo una versione testuale
+      if(buffer[i] < 0x10) {
         hexstring += '0';
       }      
-      hexstring += String(mystructure_buffer[i], HEX);
+      // che accodo nella stringa vuota
+      hexstring += String(buffer[i], HEX);
     }
-    hexstring += "\n";        // end message
-    
-    Serial.print(hexstring);  // sending the message to the PC
+    // aggiungo \n come fine riga per la porta seriale
+    hexstring += "\n";
+    // invio il messaggio sulla seriale 
+    Serial.print(hexstring); 
 
-    //////////////////////////////////////////
-
-    // String miaStringa = hexstring;
-    // char hestx[11];
-    // byte barray[5]; 
-
-    // strncpy(hestx, miaStringa.c_str(), 10);
-    // hestx[10] = '\0'; // Assicurati che la stringa sia terminata correttamente
-
-    // // Conversione da stringa esadecimale a array di byte
-    // for(int i = 0; i < 10; i += 2) {
-    //     // Converte ogni coppia di caratteri esadecimali (hestx[i] e hestx[i+1]) in un byte
-    //     // e lo memorizza in barray[i/2]
-    //     unsigned int byte;
-    //     sscanf(&hestx[i], "%2x", &byte); // Legge due caratteri esadecimali e li converte in un intero
-    //     barray[i / 2] = (byte) & 0xFF; // Assicura che il valore sia nel range di un byte
-    // }
-
-    // LkArraylize<DataPacket> dataPacketConverter;
-    // DataPacket receivedData = dataPacketConverter.deArraylize(barray);
-
-    // Serial.println(miaStringa);
-    // Serial.println(hestx);
-    // Serial.println((receivedData.countActiveWh));
-
-    
     delay(1000); // simulazione (dovrebbe essere nella realtà 8 secondi)
   }
 }
