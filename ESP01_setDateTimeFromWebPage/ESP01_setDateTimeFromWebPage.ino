@@ -123,7 +123,8 @@ String getHTML() {
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
-            document.getElementById('updateTime').addEventListener('click', function() {
+            var updateTimeButton = document.getElementById('updateTime');
+            updateTimeButton.addEventListener('click', function() {
                 var now = new Date();
                 var dateTimeString = now.getFullYear() + '-' + 
                                      ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
@@ -132,6 +133,10 @@ String getHTML() {
                                      ('0' + now.getMinutes()).slice(-2) + ':' + 
                                      ('0' + now.getSeconds()).slice(-2);
                 webSocket.send(dateTimeString);
+                // Disabilita il pulsante una volta cliccato
+                updateTimeButton.disabled = true;
+                // Cambia il testo del pulsante per indicare che il comando è stato inviato
+                updateTimeButton.textContent = 'Data/Ora Aggiornata';
             });
         });
     </script>
@@ -144,5 +149,6 @@ String getHTML() {
 )=====";
   return html;
 }
+
 
 

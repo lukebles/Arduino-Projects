@@ -38,7 +38,7 @@ void loop() {
   
   for(int i = 0; i < numSamples; i++) {
     int waveValue = sinusoidalWave(i);
-    //countWA += waveValue;
+    countWA += waveValue;
     
     // carico i dati nella struttura
     DataPacket packet_tx = {1, countWA, countWR};

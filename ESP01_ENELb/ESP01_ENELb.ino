@@ -2,6 +2,7 @@
 #include <WebSocketsServer_Generic.h>
 #include <LkArraylize.h>
 #include "LkHexBytes.h" 
+#include <TimeLib.h>
 
 struct DataPacket{
   uint8_t sender;
@@ -26,8 +27,59 @@ unsigned long myStringDiffTimes[NUM_STRINGS];
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
+bool orarioAggiornato = false;
+
+uint8_t arrayEnergiaMinuti[30];
+
+#include <cstring> // Per usare strcpy e strncpy
+
+const int MAX_STRINGHE = 20; // Numero massimo di stringhe
+const int MAX_LUNGHEZZA = 30; // Lunghezza massima di ogni stringa
+
+char arrayStringhe[MAX_STRINGHE][MAX_LUNGHEZZA] = {0}; // Inizializza l'array di stringhe
+int indiceCorrente = 0; // Indice per tracciare l'ultima posizione usata nell'array
+
+void aggiungiStringa(const String& nuovaStringa) {
+    // Utilizza c_str() per ottenere un puntatore const char* alla stringa
+    // e poi copia la stringa nella posizione corrente dell'array,
+    // limitando la lunghezza per evitare overflow del buffer.
+    strncpy(arrayStringhe[indiceCorrente], nuovaStringa.c_str(), MAX_LUNGHEZZA - 1);
+    arrayStringhe[indiceCorrente][MAX_LUNGHEZZA - 1] = '\0'; // Assicura terminazione della stringa
+
+    // Aggiorna l'indice in modo circolare
+    indiceCorrente = (indiceCorrente + 1) % MAX_STRINGHE;
+}
+
+int approssimaAlCentinaio(float valore) {
+    return static_cast<int>((valore + 50) / 100) * 100;
+}
+
+// dal contenuto dei due array di C++
+// genera il testo da inviare alla funzione Javascript
+// [ valori primo array ENERGIA ],[ valori secondo array DATA ORA POTENZA]
+String generaParametriJavascript(){
+  String jsArray1 = "[";
+  for(int i = 0; i < 30; ++i) {
+      jsArray1 += String(arrayEnergiaMinuti[i]);
+      if(i < 29) jsArray1 += ",";
+  }
+  jsArray1 += "]";
+
+  String jsArray2 = "[";
+  for(int i = 0; i < 20; ++i) {
+      jsArray2 += String(arrayStringhe[i]);
+      if(i < 19) jsArray2 += ",";
+  }
+  jsArray2 += "]";
+
+  return jsArray1 + "," + jsArray2;
+}
+
 void setup() {
   Serial.begin(115200);
+  while (!Serial) {
+    ; // aspetta la connessione della porta seriale
+  }
 
   WiFi.softAP(ssid, password);
   
@@ -39,6 +91,9 @@ void setup() {
 
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  tmElements_t tm;
+  
 }
 
 
@@ -49,7 +104,7 @@ void loop() {
   if (Serial.available() > 0) {
     String strSeriale = Serial.readStringUntil('\n');
     // la lunghezza del dato sulla seriale deve essere adeguata a DataPacket
-    if (strSeriale.length() == sizeof(DataPacket) * 2){
+    if (strSeriale.length() == (sizeof(DataPacket)-1) * 2){ // -1 per il terminatore
       // 10 caratteri tipo "01FA4388FE" + 1 (terminatore \0)
       char chararray[sizeof(DataPacket) * 2 + 1];
       // 5 caratteri + 1 per il terminatore nullo
@@ -85,14 +140,34 @@ void loop() {
           float delta_energia_wh = float(diffEnergia);
           float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
           // aggiornamento degli array
-
-          // aggiornamento della pagina web
-          String script = "newSerialData()";
-          webSocket.broadcastTXT(script);
+          //int approssimata = approssimaAlCentinaio(potenzaAttiva);
 
           // aggiornamento dei dati 'precedenti'
           previous_time_ENEL = millis();
           previous_countActiveWh = packet_rx.countActiveWh;
+
+          // se l'orario è aggiornato
+          // memorizza l'energia dell'ultima ora
+          if (orarioAggiornato){
+
+            // riempimento array 1
+
+            arrayEnergiaMinuti[minute()/2] += diffEnergia;
+
+            // rimpimento array 2
+            String stringa = String(year()) + " " + String(month()) + " " + 
+                String(day()) + " " + String(hour()) + " " + 
+                String(minute()) + " " + String(second()) + " -> ";
+            aggiungiStringa(stringa + String(potenzaAttiva));
+
+            // aggiornamento della pagina web
+            // -------------------------NON VISUALIZZA SU WEB ----------------------------
+            String script = "riempiConsoleDebug(" + generaParametriJavascript() + ")";
+            //webSocket.broadcastTXT(script);
+            Serial.println(script);
+
+          }
+
         }
       }
     }
@@ -101,6 +176,32 @@ void loop() {
 
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  if (type == WStype_TEXT) {
+    String dateTime = String((char *)payload).substring(0, length);
+    
+    // Estrai ogni componente della data e ora dalla stringa
+    int year, month, day, hour, minute, second;
+    year = dateTime.substring(0, 4).toInt();
+    month = dateTime.substring(5, 7).toInt();
+    day = dateTime.substring(8, 10).toInt();
+    hour = dateTime.substring(11, 13).toInt();
+    minute = dateTime.substring(14, 16).toInt();
+    second = dateTime.substring(17, 19).toInt();
+
+    // Ajust for the year offset in tmElements_t
+    tmElements_t tm;
+    tm.Year = year - 1970;
+    tm.Month = month;
+    tm.Day = day;
+    tm.Hour = hour;
+    tm.Minute = minute;
+    tm.Second = second;
+
+    time_t t = makeTime(tm); // Converti in time_t
+    setTime(t); // Imposta l'ora del sistema
+    // Serial.println("Data e ora aggiornate via WebSocket");
+    orarioAggiornato = true;
+  }  
 }
 
 String getHTML() {
@@ -111,11 +212,31 @@ String getHTML() {
   html += "<body>";
   html += "<svg id='graph' width='125' height='125' style='border:1px solid black'></svg>";
   html += "<div id='debugConsole'></div>";
+  html += "<button id='updateTime'>Aggiorna Data/Ora</button>";
   html += "<script>";
   html += "var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');";
   html += "webSocket.onmessage = function(event) {";
   html += "  eval(event.data);";  // Esegue lo script ricevuto
   html += "};";
+
+  html += R"====(
+var updateTimeButton = document.getElementById('updateTime');
+updateTimeButton.addEventListener('click', function() {
+    var now = new Date();
+    var dateTimeString = now.getFullYear() + '-' + 
+                          ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
+                          ('0' + now.getDate()).slice(-2) + ' ' + 
+                          ('0' + now.getHours()).slice(-2) + ':' + 
+                          ('0' + now.getMinutes()).slice(-2) + ':' + 
+                          ('0' + now.getSeconds()).slice(-2);
+    webSocket.send(dateTimeString);
+    // Disabilita il pulsante una volta cliccato
+    updateTimeButton.disabled = true;
+    // Cambia il testo del pulsante per indicare che il comando è stato inviato
+    updateTimeButton.textContent = 'Data/Ora Aggiornata';
+});
+  )====";
+
   html += getScript();
   html += "</script>";
   html += "</body>";
@@ -127,127 +248,22 @@ String getHTML() {
 String getScript() {
   String html = R"(
 
-var sizeArray = 30;
-var arrayDateTime = new Array(sizeArray); 
-var arrayMessaggi = new Array(sizeArray);
+function riempiConsoleDebug(array1, array2) {
+    // Ottieni il div della console di debug tramite il suo id
+    var consoleDebug = document.getElementById('debugConsole');
 
-function newSerialData(data) {
-  // Aggiunge la data e l'ora corrente all'array
-  var now = new Date();
+    // Pulisci il contenuto precedente della console di debug
+    consoleDebug.innerHTML = '';
 
-  arrayDateTime.push(now);
-
-  // Aggiunge il messaggio ricevuto all'array
-  arrayMessaggi.push(data);
-
-  // Verifica se la lunghezza degli array supera 30
-  if (arrayDateTime.length > sizeArray) {
-    // Rimuove l'elemento più vecchio
-    arrayDateTime.shift();
-  }
-  if (arrayMessaggi.length > sizeArray) {
-    // Rimuove l'elemento più vecchio
-    arrayMessaggi.shift();
-  }
-  printArraysToConsole();
-  plotDraw();
-}
-
-function printArraysToConsole() {
-  // Ottiene l'elemento della console di debug
-  var debugConsole = document.getElementById('debugConsole');
-
-  // Pulisce la console prima di stampare i nuovi dati
-  debugConsole.innerHTML = '';
-
-  // Itera sugli array e aggiunge il contenuto alla console di debug
-  for (var i = 0; i < arrayDateTime.length; i++) {
-    var dateTime = arrayDateTime[i];
-
-    // Data formattata
-    var formattedDateTime = dateTime.getFullYear() + '-' +
-        ('0' + (dateTime.getMonth() + 1)).slice(-2) + '-' +
-        ('0' + dateTime.getDate()).slice(-2) + ' ' +
-        ('0' + dateTime.getHours()).slice(-2) + ':' +
-        ('0' + dateTime.getMinutes()).slice(-2) + ':' +
-        ('0' + dateTime.getSeconds()).slice(-2) + '.' +
-        ('00' + dateTime.getMilliseconds()).slice(-3);
-
-      // Calcolo della differenza temporale in millisecondi
-      var timeDifference = '';
-      if (i < arrayDateTime.length - 1) {
-        timeDifference = arrayDateTime[i + 1] - arrayDateTime[i]; 
-      }
-      var timeDiffElement = '<span class="time-diff">' + timeDifference + ' ms</span>';
-
-    var testo = arrayMessaggi[i];
-    
-    // Crea una nuova riga per ogni coppia di data/ora e messaggio
-    
-    debugConsole.innerHTML += '<div>' + formattedDateTime + ': ' + testo + ' ' + timeDiffElement + '</div>';
-  }
-}
-
-function hexStringToAscii(str) {
-  var asciiStr = '';
-  var nonPrintableChar = '?'; // Carattere per rappresentare caratteri non stampabili
-
-  for (var i = 0; i < str.length; i += 2) {
-    var hex = str.substr(i, 2);
-    var charCode = parseInt(hex, 16);
-    
-    // Controlla se il carattere è visualizzabile
-    if (charCode >= 32 && charCode <= 126) {
-      // Aggiunge il carattere ASCII corrispondente
-      asciiStr += String.fromCharCode(charCode);
-    } else {
-      // Sostituisce con il carattere non stampabile
-      asciiStr += nonPrintableChar;
-    }
-  }
-  return asciiStr;
-}
-
-function plotDraw(){
-  var svg = document.getElementById('graph');
-  svg.innerHTML = ''; // Pulisci il grafico prima di disegnare nuove barre
-  var svgWidth = svg.clientWidth;
-  var svgHeight = svg.clientHeight;
-
-  // Calcola la scala per il valore y (ad esempio, se i valori massimi sono 1023)
-  var yScale = svgHeight / 1023;
-
-  // Larghezza di ogni barra
-  var barWidth = svgWidth / 30;
-
-  // Disegna le barre
-  for (var i = 0; i < arrayMessaggi.length; i++) {
-    var x = barWidth * i;
-    var y;
-    var height;
-    var barColor;
-    var numero = Number(hexStringToAscii(arrayMessaggi[i]));
-
-    // Se il dato è undefined o null, disegna una barra grigia di altezza massima
-    if (numero === -1) {
-      y = 0;
-      height = svgHeight;
-      barColor = 'gray';
-    } else {
-      y = svgHeight - (numero * yScale);
-      height = numero * yScale;
-      barColor = 'blue'; // Colore della barra se il dato è presente
-    }
-
-    // Crea e aggiungi la barra
-    var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', x);
-    rect.setAttribute('y', y);
-    rect.setAttribute('width', barWidth);
-    rect.setAttribute('height', height);
-    rect.setAttribute('fill', barColor);
-    svg.appendChild(rect);
-  }  
+    // Itera su ogni elemento 
+    array2.forEach(function(elemento) {
+        // Crea un elemento p (paragrafo) per ogni elemento dell'array
+        var paragrafo = document.createElement('p');
+        // Assegna il testo del paragrafo all'elemento corrente dell'array
+        paragrafo.textContent = elemento;
+        // Aggiungi il paragrafo al div della console di debug
+        consoleDebug.appendChild(paragrafo);
+    });
 }
 
     )";
