@@ -1,14 +1,7 @@
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
-#include <LkArraylize.h>
-#include "LkHexBytes.h" 
 #include <TimeLib.h>
-////////////////////////////////////////// PROGRAMMA PRINCIPALE //////////////////////
-struct DataPacket{
-  uint8_t sender;
-  uint16_t countActiveWh;
-  uint16_t countReactiveWh;
-};
+
 
 // ===================================
 // change ssid and password as needed
@@ -16,11 +9,9 @@ struct DataPacket{
 const char* ssid = "sid";
 const char* password = "pw12345678";
 
-uint16_t previous_countActiveWh = 0;
-unsigned long previous_time_ENEL = 0;
-#define NUM_STRINGS 20 // dimensione dell'array
-#define STRING_LENGTH 40 // lunghezza massima della stringa
-#define GRAFICO_LENGTH 24 // lunghezza massima della stringa
+#define NUM_STRINGS 5 // 20 // dimensione dell'array
+#define STRING_LENGTH 6 // 40 // lunghezza massima della stringa
+#define GRAFICO_LENGTH 7 // 24 // lunghezza massima della stringa
 
 char myStrings[NUM_STRINGS][STRING_LENGTH];
 unsigned long myStringDiffTimes[NUM_STRINGS];
@@ -39,6 +30,12 @@ const int MAX_LUNGHEZZA = STRING_LENGTH; // Lunghezza massima di ogni stringa
 
 char arrayStringhe[MAX_STRINGHE][MAX_LUNGHEZZA] = {0}; // Inizializza l'array di stringhe
 int indiceCorrente = 0; // Indice per tracciare l'ultima posizione usata nell'array
+
+uint16_t previous_countActiveWh = 0;
+unsigned long previous_time_ENEL = 0;
+
+unsigned long tempoPrecedente;
+uint16_t contatoreWHA = 0;
 
 void aggiungiStringa(const String& nuovaStringa) {
     if (indiceCorrente < MAX_STRINGHE - 1) {
@@ -86,6 +83,10 @@ String generaParametriJavascript(){
 }
 
 void setup() {
+
+  tempoPrecedente = millis();
+  previous_time_ENEL = tempoPrecedente;
+
   Serial.begin(115200);
   while (!Serial) {
     ; // aspetta la connessione della porta seriale
@@ -111,75 +112,65 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  if (Serial.available() > 0) {
-    String strSeriale = Serial.readStringUntil('\n');
-    // la lunghezza del dato sulla seriale deve essere adeguata a DataPacket
-    if (strSeriale.length() == (sizeof(DataPacket)-1) * 2){ // -1 per il terminatore
-      // 10 caratteri tipo "01FA4388FE" + 1 (terminatore \0)
-      char chararray[sizeof(DataPacket) * 2 + 1];
-      // 5 caratteri + 1 per il terminatore nullo
-      byte bytearray[sizeof(DataPacket)];
-      // converte la stringa in un array di caratteri char
-      strncpy(chararray, strSeriale.c_str(), sizeof(chararray) - 1);
-      // aggiunge il terminatore stringa null \0
-      chararray[sizeof(chararray) - 1] = '\0'; 
-      // converto l'array di caratteri in un array di bytes
-      LkHexBytes::hexCharacterStringToBytes(bytearray, chararray);
-      // dichiaro la classe 
-      //LkArraylize<DataPacket> dearraylizator;
-      // ricompongo i dati secondo la struttura
-      //DataPacket packet_rx = dearraylizator.deArraylize(bytearray);
-      uint16_t contatoreWHA = (bytearray[2] << 8) | bytearray[1];
-      // se il mittente è 1 (ENEL)
-      if (bytearray[0] == 1){
-        // se è la prima ricezione
-        if (previous_time_ENEL == 0){
-          // riempie i valori precedenti con quelli attuali
-          previous_time_ENEL = millis();
-          previous_countActiveWh = contatoreWHA;
-        } else {
-          // .. altimenti esegue le differenze valori attuali - precedenti
-          //
-          // verificato: funziona anche la differenza 
-          // durante il passaggio da 4294967295 a 0, 1, 2, ... eccetera
-          unsigned long diffmillis = millis() - previous_time_ENEL;
-          // verificato: funziona anche la differenza 
-          // durante il passaggio da 65535 a 0, 1, 2, ... eccetera
-          unsigned long diffEnergia = contatoreWHA - previous_countActiveWh;
-          // calcoli della potenza dall'energia e dal tempo
-          float delta_tempo_sec = float(diffmillis)/1000.0;
-          float delta_energia_wh = float(diffEnergia);
-          float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
-          // aggiornamento degli array
-          int approssimata = approssimaAlCentinaio(potenzaAttiva);
+  // questa parte sostituisce la parte che riceve il messaggio
+  // nella realtà ogni 8 secondi circa, qui simulato a 3 secondi
+  // dallo stesso sistema. 
+  if ((millis()-tempoPrecedente) > 200){
 
-          // aggiornamento dei dati 'precedenti'
-          previous_time_ENEL = millis();
-          previous_countActiveWh = contatoreWHA;
 
-          // se l'orario è aggiornato
-          // memorizza l'energia dell'ultima ora
-          if (orarioAggiornato){
+    tempoPrecedente = millis();
+    contatoreWHA += 1; // incremento del contatore così tanto per...
 
-            // riempimento array 1
+    // il fatto che sia un programma di test
+    // può fare suonare strane le righe successive perchè
+    // prelevate del progetto ESP01-ENELb... un nome del genere
+    //
+    // la prima volta... 
+    if (previous_time_ENEL == 0){
+      // ... riempie i valori precedenti con quelli attuali
+      previous_time_ENEL = millis();
+      previous_countActiveWh = contatoreWHA;
+    } else {
+      // .. altimenti esegue le differenze valori attuali - precedenti
+      //
+      // verificato: funziona anche la differenza 
+      // durante il passaggio da 4294967295 a 0, 1, 2, ... eccetera
+      unsigned long diffmillis = millis() - previous_time_ENEL;
+      // verificato: funziona anche la differenza 
+      // durante il passaggio da 65535 a 0, 1, 2, ... eccetera
+      unsigned long diffEnergia = contatoreWHA - previous_countActiveWh;
+      // calcoli della potenza dall'energia e dal tempo
+      float delta_tempo_sec = float(diffmillis)/1000.0;
+      float delta_energia_wh = float(diffEnergia);
+      float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
+      // aggiornamento degli array
+      int approssimata = approssimaAlCentinaio(potenzaAttiva);
 
-            arrayEnergiaMinuti[minute()/2] += diffEnergia;
+      // aggiornamento dei dati 'precedenti'
+      previous_time_ENEL = millis();
+      previous_countActiveWh = contatoreWHA;
 
-            // rimpimento array 2
-            String stringa = String(year()) + " " + String(month()) + " " + 
-                String(day()) + " " + String(hour()) + " " + 
-                String(minute()) + " " + String(second()) + " -> ";
-            aggiungiStringa(stringa + String(approssimata)+ " (" + diffmillis +"ms)");
+      // se l'orario è aggiornato
+      // memorizza l'energia dell'ultima ora
+      if (orarioAggiornato){
 
-            // aggiornamento della pagina web
-            // -------------------------NON VISUALIZZA SU WEB ----------------------------
-            String script = "riempiConsoleDebug(" + generaParametriJavascript() + ")";
-            webSocket.broadcastTXT(script);
-            //Serial.println(script);
+        // riempimento array 1
 
-          }
+        arrayEnergiaMinuti[minute()/2] += diffEnergia;
 
-        }
+        // rimpimento array 2
+        String stringa = String(year()) + " " + String(month()) + " " + 
+            String(day()) + " " + String(hour()) + " " + 
+            String(minute()) + " " + String(second()) + " -> ";
+        aggiungiStringa(String(contatoreWHA));
+        //aggiungiStringa(stringa + String(approssimata)+ " (" + diffmillis +"ms)");
+
+        // aggiornamento della pagina web
+        // -------------------------NON VISUALIZZA SU WEB ----------------------------
+        String script = "riempiConsoleDebug(" + generaParametriJavascript() + ")";
+        webSocket.broadcastTXT(script);
+        //Serial.println(script);
+
       }
     }
   }
