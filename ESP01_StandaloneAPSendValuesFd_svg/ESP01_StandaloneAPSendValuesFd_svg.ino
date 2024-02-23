@@ -33,15 +33,23 @@ char* getHTMLmain() {
     "</head><body>"
     "<table>");
 
-  // Crea le righe e le celle della tabella
   for (int row = 0; row < righe; row++) {
-    strcat(html, "<tr>");
-    for (int col = 0; col < colonne; col++) {
-      char cell[50];
-      sprintf(cell, "<td id='cell-%d'></td>", row * colonne + col);
-      strcat(html, cell);
-    }
-    strcat(html, "</tr>");
+      strcat(html, "<tr>");
+      for (int col = 0; col < colonne; col++) {
+          if (col == 1) { // Se è la seconda colonna, inserisci un SVG
+              char svgCell[300]; // Aumenta la dimensione se il tuo SVG è più grande
+              sprintf(svgCell, "<td>"
+              "<svg id='svg-%d'>"
+              "</svg>"
+              "</td>", row + 1);
+              strcat(html, svgCell);
+          } else { // Per le altre colonne, inserisci celle normali
+              char cell[50];
+              sprintf(cell, "<td id='cell-%d-%d'></td>", row, col);
+              strcat(html, cell);
+          }
+      }
+      strcat(html, "</tr>");
   }
 
   // Script JavaScript
@@ -74,7 +82,21 @@ char* getHTMLmain() {
   strcat(html, script);
 
   // Fine dell'HTML
-  strcat(html, "</script>"
+  strcat(html, " "
+    // Funzione per aggiungere un cerchio rosso a un SVG
+    "function aggiungiCerchioRisso() {"
+      "for (var i = 1; i <= righe; i++) {"
+        "var svg = document.getElementById('svg-' + i);"
+        "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
+        "rect.setAttribute('width', 50);"
+        "rect.setAttribute('height', 5);"
+        "rect.setAttribute('fill', 'blue');"
+        "svg.appendChild(rect);"
+      "}"
+    "}"
+    // Chiamata alla funzione al caricamento della pagina o in base a un evento specifico
+    "document.addEventListener('DOMContentLoaded', aggiungiCerchioRisso);"
+    "</script>"
     "</body>"
     "</html>");
 

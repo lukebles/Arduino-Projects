@@ -1,3 +1,4 @@
+#include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include <TimeLib.h>
@@ -12,7 +13,30 @@ ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 // Definisci una dimensione massima per l'HTML
-const unsigned int HTML_SIZE = 10000;
+const unsigned int HTML_SIZE = 15000;
+unsigned long lastTime = 0; 
+
+
+void sendRandomLength() {
+  char message[300]; // Assicurati che sia abbastanza grande.
+  int len = 0; // Usata per tenere traccia della lunghezza attuale del messaggio.
+
+  len += snprintf(message + len, sizeof(message) - len, "["); // Inizia l'array JSON.
+
+  for(int i = 0; i <= righe; i++) {
+    if (i > 0) {
+      len += snprintf(message + len, sizeof(message) - len, ","); // Aggiungi virgola.
+    }
+    int width = random(5, 31); // Genera un numero casuale per la larghezza.
+    len += snprintf(message + len, sizeof(message) - len, "%d", width); // Aggiungi il numero.
+  }
+
+  len += snprintf(message + len, sizeof(message) - len, "]"); // Chiude l'array JSON.
+
+  webSocket.broadcastTXT(message); // Invia il messaggio.
+}
+
+
 
 // codice HTML per la pagina principale
 char* getHTMLmain() {
@@ -26,20 +50,29 @@ char* getHTMLmain() {
     "<meta charset=\"UTF-8\">"
     "<title>Tabella con SVG e Pulsante</title>"
     "<style>"
-    "table, th, td {border: 1px solid black; border-collapse: collapse;}"
+    "table, th, td {border: 1px solid black; border-collapse: collapse; padding: 0}"
     "th, td {padding: 10px; text-align: center;}"
-    "svg {width: 50px; height: 5px;}"
+    ".svg-cell {padding: 0; margin: 0;}"
     "</style>"
     "</head><body>"
     "<table>");
 
   // Crea le righe e le celle della tabella
+  char cell[200]; // Aumenta la dimensione se necessario
   for (int row = 0; row < righe; row++) {
     strcat(html, "<tr>");
     for (int col = 0; col < colonne; col++) {
-      char cell[50];
-      sprintf(cell, "<td id='cell-%d'></td>", row * colonne + col);
-      strcat(html, cell);
+      if (col == 1) {        
+        sprintf(cell, "<td class='svg-cell'>"
+        "<svg id='svg-%d' width='25' height='25'>"
+        "<circle cx='12.5' cy='12.5' r='12.5' fill='red' />"
+        "</svg>"
+        "</td>", row + 1);
+        strcat(html, cell);
+      } else {
+        sprintf(cell, "<td id='cell-%d'></td>", row * colonne + col);
+        strcat(html, cell);
+      }
     }
     strcat(html, "</tr>");
   }
@@ -74,9 +107,25 @@ char* getHTMLmain() {
   strcat(html, script);
 
   // Fine dell'HTML
-  strcat(html, "</script>"
-    "</body>"
-    "</html>");
+  strcat(html, 
+    "webSocket.onmessage = function(event) {"
+      "var widths = JSON.parse(event.data);" // Parse l'array JSON ricevuto.
+      "widths.forEach(function(width, index) {"
+        "var svgId = 'svg-' + index;" // Costruisce l'ID dell'SVG basato sull'indice.
+        "var svg = document.getElementById(svgId);"
+        "if (svg) {"
+          "svg.innerHTML = '';" // Pulisce l'SVG.
+          "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
+          "rect.setAttribute('width', width);"// Imposta la larghezza in base al valore dell'array.
+          "rect.setAttribute('height', '10');"
+          "rect.setAttribute('fill', 'blue');"
+          "svg.appendChild(rect);"
+        "}"
+      "});"
+    "};"
+  "</script>"
+  "</body>"
+  "</html>");
 
   return html;
 }
@@ -100,6 +149,12 @@ void setup() {
 void loop() {
   webSocket.loop();
   server.handleClient();
+
+  unsigned long currentTime = millis();
+  if (currentTime - lastTime > 100) { // 1000 ms = 1 secondo
+    lastTime = currentTime;
+    sendRandomLength();
+  }  
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
