@@ -2,12 +2,17 @@
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include <TimeLib.h>
+#include <stdlib.h> // Include la libreria per accesso a atoi()
 
 const char* ssid = "sid";
 const char* password = "pw12345678";
 
-uint8_t righe = 20;
-uint8_t colonne = 15;
+#define righe  20
+#define colonne 15
+
+long values[righe]; // Array per memorizzare i valori
+int numValues = 0; // Numero attuale di valori nell'array
+
 
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -16,25 +21,41 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 const unsigned int HTML_SIZE = 15000;
 unsigned long lastTime = 0; 
 
+#define BUFFER_SIZE 40 // Imposta la dimensione del buffer secondo le necessità
+char serialBuffer[BUFFER_SIZE]; // Buffer per i dati seriali
+int serialBufferIndex = 0; // Indice per il posizionamento nel buffer
+bool newData = false; // Flag per indicare la disponibilità di nuovi dati
 
-// invio di valori random
-void sendRandomLength() {
+
+void sendArrayValues() {
   char message[300]; // modificare se necessario
   int len = 0; // Usata per tenere traccia della lunghezza attuale del messaggio.
   len += snprintf(message + len, sizeof(message) - len, "["); // Inizia l'array JSON.
-  for(int i = 0; i <= righe; i++) {
+  for(int i = 0; i < righe; i++) {
     if (i > 0) {
       len += snprintf(message + len, sizeof(message) - len, ","); // Aggiungi virgola.
     }
-    int width = random(5, 31); // Genera un numero casuale per la larghezza.
+    int width = values[i];//random(5, 31); // Genera un numero casuale per la larghezza.
     len += snprintf(message + len, sizeof(message) - len, "%d", width); // Aggiungi il numero.
   }
   len += snprintf(message + len, sizeof(message) - len, "]"); // Chiude l'array JSON.
-
+  //Serial.println(message);
   webSocket.broadcastTXT(message); // Invia il messaggio.
 }
 
-
+void addValue(long newValue) {
+  if (numValues < righe) {
+    // Se c'è spazio, aggiungi il valore all'ultimo indice disponibile
+    values[numValues++] = newValue;
+  } else {
+    // Se l'array è pieno, sposta tutti gli elementi di una posizione verso l'inizio
+    for(int i = 1; i < righe; i++) {
+      values[i-1] = values[i];
+    }
+    // Aggiungi il nuovo valore all'ultimo indice
+    values[righe - 1] = newValue;
+  }
+}
 
 // codice HTML per la pagina principale
 char* getHTMLmain() {
@@ -48,8 +69,8 @@ char* getHTMLmain() {
     "<meta charset=\"UTF-8\">"
     "<title>Tabella con SVG e Pulsante</title>"
     "<style>"
-    "table, th, td {border: 1px solid black; border-collapse: collapse; padding: 0}"
-    "th, td {padding: 10px; text-align: center;}"
+    "table, th, td {border: 0; border-collapse: collapse; padding: 0}"
+    "th, td {padding: 0; margin: 0; text-align: right;}"
     ".svg-cell {padding: 0; margin: 0;}"
     "</style>"
     "</head><body>"
@@ -62,18 +83,19 @@ char* getHTMLmain() {
     for (int col = 0; col < colonne; col++) {
       if (col == 1) {        
         sprintf(cell, "<td class='svg-cell'>"
-        "<svg id='svg-%d' width='25' height='25'>"
-        "<circle cx='12.5' cy='12.5' r='12.5' fill='red' />"
+        "<svg id='svg-%d-%d' width='25' height='25'>"
         "</svg>"
-        "</td>", row + 1);
+        "</td>", col, row);
         strcat(html, cell);
       } else {
-        sprintf(cell, "<td id='cell-%d'></td>", row * colonne + col);
+        sprintf(cell, "<td id='cell-%d-%d'></td>", col,row);
         strcat(html, cell);
       }
     }
     strcat(html, "</tr>");
   }
+
+  //Serial.println(html);
 
   // Script JavaScript
   strcat(html, "<script>"
@@ -101,7 +123,7 @@ char* getHTMLmain() {
 
   // Aggiungi il pulsante specifico
   char script[100];
-  sprintf(script, "inserisciPulsante('cell-%d', 'Clicca Qui');", colonne);
+  sprintf(script, "inserisciPulsante('cell-0-1', 'Clicca Qui');");
   strcat(html, script);
 
   // Fine dell'HTML
@@ -109,8 +131,10 @@ char* getHTMLmain() {
     "webSocket.onmessage = function(event) {"
       "var widths = JSON.parse(event.data);" // Parse l'array JSON ricevuto.
       "widths.forEach(function(width, index) {"
-        "var svgId = 'svg-' + index;" // Costruisce l'ID dell'SVG basato sull'indice.
+        "var svgId = 'svg-1-' + index;" // Costruisce l'ID dell'SVG basato sull'indice.
+        "var cellId = 'cell-2-' + index;"
         "var svg = document.getElementById(svgId);"
+        "var cell = document.getElementById(cellId);"
         "if (svg) {"
           "svg.innerHTML = '';" // Pulisce l'SVG.
           "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
@@ -118,6 +142,7 @@ char* getHTMLmain() {
           "rect.setAttribute('height', '10');"
           "rect.setAttribute('fill', 'blue');"
           "svg.appendChild(rect);"
+          "cell.textContent = width;"
         "}"
       "});"
     "};"
@@ -131,6 +156,9 @@ char* getHTMLmain() {
 void setup() {
   Serial.begin(115200);
   while (!Serial){;}
+
+  serialBuffer[0] = '\0';
+
   WiFi.softAP(ssid, password);
   Serial.println("Access Point Started");
 
@@ -148,11 +176,36 @@ void loop() {
   webSocket.loop();
   server.handleClient();
 
-  unsigned long currentTime = millis();
-  if (currentTime - lastTime > 100) { // 1000 ms = 1 secondo
-    lastTime = currentTime;
-    sendRandomLength();
-  }  
+  serialDataReady(); // Controlla e accumula i dati seriali
+  if (newData) { // Se sono disponibili nuovi dati
+    // Serial.print("Ricevuto: ");
+    // Serial.println(serialBuffer);
+    ////////////////
+    // serialbuffer contiene i dati
+    ////////////////
+    int receivedNumber = atoi(serialBuffer);
+    addValue(receivedNumber);
+
+    sendArrayValues();
+
+    //Serial.println(receivedNumber);
+    memset(serialBuffer, 0, BUFFER_SIZE); // Resetta il buffer e preparati per la prossima lettura
+    newData = false; // Resetta il flag di nuovi dati
+  }
+}
+
+void serialDataReady() {
+  while (Serial.available() > 0) {
+    char receivedChar = Serial.read(); // Legge il carattere in arrivo
+    if (receivedChar == '\n') { // Se il carattere è una nuova linea
+      serialBuffer[serialBufferIndex] = '\0'; // Termina la stringa nel buffer
+      serialBufferIndex = 0; // Resetta l'indice per la prossima lettura
+      newData = true; // Imposta il flag di nuovi dati disponibili
+    } else if (serialBufferIndex < BUFFER_SIZE - 1) { // Se c'è spazio nel buffer
+      serialBuffer[serialBufferIndex++] = receivedChar; // Aggiungi al buffer
+      serialBuffer[serialBufferIndex] = '\0'; // Assicura che il buffer sia sempre una stringa valida
+    }
+  }
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
