@@ -9,7 +9,7 @@ void setup() {
 }
 
 void loop() {
-  long valore = random(5,31);
+  long valore = random(-4000,4000);
   Serial.print(String(valore)+"\n");
-  delay(10);
+  delay(100);
 }

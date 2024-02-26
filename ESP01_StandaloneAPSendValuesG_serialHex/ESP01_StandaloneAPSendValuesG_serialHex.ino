@@ -7,12 +7,11 @@
 const char* ssid = "sid";
 const char* password = "pw12345678";
 
-#define righe  20
-#define colonne 15
+#define TAB_ROWS  20
+#define TAB_COLUMNS 15
 
-long values[righe]; // Array per memorizzare i valori
+long values[TAB_ROWS]; // Array per memorizzare i valori
 int numValues = 0; // Numero attuale di valori nell'array
-
 
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -21,17 +20,16 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 const unsigned int HTML_SIZE = 15000;
 unsigned long lastTime = 0; 
 
-#define BUFFER_SIZE 40 // Imposta la dimensione del buffer secondo le necessità
-char serialBuffer[BUFFER_SIZE]; // Buffer per i dati seriali
+#define MAX_TEXT_LENGTH 40 // Imposta la dimensione del buffer secondo le necessità
+char serialBuffer[MAX_TEXT_LENGTH]; // Buffer per i dati seriali
 int serialBufferIndex = 0; // Indice per il posizionamento nel buffer
 bool newData = false; // Flag per indicare la disponibilità di nuovi dati
-
 
 void sendArrayValues() {
   char message[300]; // modificare se necessario
   int len = 0; // Usata per tenere traccia della lunghezza attuale del messaggio.
   len += snprintf(message + len, sizeof(message) - len, "["); // Inizia l'array JSON.
-  for(int i = 0; i < righe; i++) {
+  for(int i = 0; i < TAB_ROWS; i++) {
     if (i > 0) {
       len += snprintf(message + len, sizeof(message) - len, ","); // Aggiungi virgola.
     }
@@ -44,16 +42,16 @@ void sendArrayValues() {
 }
 
 void addValue(long newValue) {
-  if (numValues < righe) {
+  if (numValues < TAB_ROWS) {
     // Se c'è spazio, aggiungi il valore all'ultimo indice disponibile
     values[numValues++] = newValue;
   } else {
     // Se l'array è pieno, sposta tutti gli elementi di una posizione verso l'inizio
-    for(int i = 1; i < righe; i++) {
+    for(int i = 1; i < TAB_ROWS; i++) {
       values[i-1] = values[i];
     }
     // Aggiungi il nuovo valore all'ultimo indice
-    values[righe - 1] = newValue;
+    values[TAB_ROWS - 1] = newValue;
   }
 }
 
@@ -78,9 +76,9 @@ char* getHTMLmain() {
 
   // Crea le righe e le celle della tabella
   char cell[200]; // Aumenta la dimensione se necessario
-  for (int row = 0; row < righe; row++) {
+  for (int row = 0; row < TAB_ROWS; row++) {
     strcat(html, "<tr>");
-    for (int col = 0; col < colonne; col++) {
+    for (int col = 0; col < TAB_COLUMNS; col++) {
       if (col == 1) {        
         sprintf(cell, "<td class='svg-cell'>"
         "<svg id='svg-%d-%d' width='60' height='10'>"
@@ -119,7 +117,6 @@ char* getHTMLmain() {
       "pulsante.innerText = testoPulsante;"
       "cella.appendChild(pulsante);"
     "}"); // Chiusura della funzione inserisciPulsante
-
 
   // Aggiungi il pulsante specifico
   char script[100];
@@ -192,24 +189,32 @@ void setup() {
   webSocket.onEvent(webSocketEvent);
 }
 
+uint8_t ID;
+uint16_t CONTATOREa, CONTATOREb;
+
+// Funzione per invertire l'ordine dei byte di un uint16_t
+uint16_t swapBytes(uint16_t value) {
+    return (value >> 8) | (value << 8);
+}
+
 void loop() {
   webSocket.loop();
   server.handleClient();
 
   serialDataReady(); // Controlla e accumula i dati seriali
   if (newData) { // Se sono disponibili nuovi dati
-    // Serial.print("Ricevuto: ");
-    // Serial.println(serialBuffer);
-    ////////////////
-    // serialbuffer contiene i dati
-    ////////////////
-    int receivedNumber = atoi(serialBuffer);
-    addValue(receivedNumber);
+
+    int result = sscanf(serialBuffer, "%2hhx%4hx%4hx", &ID, &CONTATOREa, &CONTATOREb);
+
+    // Inversione dell'ordine dei byte per CONTATOREa e CONTATOREb
+    CONTATOREa = swapBytes(CONTATOREa);
+
+    addValue(CONTATOREa);
 
     sendArrayValues();
 
     //Serial.println(receivedNumber);
-    memset(serialBuffer, 0, BUFFER_SIZE); // Resetta il buffer e preparati per la prossima lettura
+    memset(serialBuffer, 0, MAX_TEXT_LENGTH); // Resetta il buffer e preparati per la prossima lettura
     newData = false; // Resetta il flag di nuovi dati
   }
 }
@@ -221,7 +226,7 @@ void serialDataReady() {
       serialBuffer[serialBufferIndex] = '\0'; // Termina la stringa nel buffer
       serialBufferIndex = 0; // Resetta l'indice per la prossima lettura
       newData = true; // Imposta il flag di nuovi dati disponibili
-    } else if (serialBufferIndex < BUFFER_SIZE - 1) { // Se c'è spazio nel buffer
+    } else if (serialBufferIndex < MAX_TEXT_LENGTH - 1) { // Se c'è spazio nel buffer
       serialBuffer[serialBufferIndex++] = receivedChar; // Aggiungi al buffer
       serialBuffer[serialBufferIndex] = '\0'; // Assicura che il buffer sia sempre una stringa valida
     }

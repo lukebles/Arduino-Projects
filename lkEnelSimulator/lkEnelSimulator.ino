@@ -17,14 +17,14 @@ struct txData1{
 LkRadioStructure<txData1> txData1_o;
 
 #include <LkMultivibrator.h>
-LkMultivibrator every8secs(random(8000,9000),ASTABLE);
+LkMultivibrator every8secs(random(1000,1100),ASTABLE);
 uint16_t pulsesPowerActive = 65530;
 uint16_t pulsesPowerReactive = 12345;
 
 void setup() {
   // radio setup just one for all instances of LkRadioStructure
   txData1_o.globalSetup(speed, transmit_pin, receive_pin);
-  Serial.begin(38400);
+  Serial.begin(115200);
   delay(500);
   pinMode(LED_BUILTIN,OUTPUT);
   digitalWrite(LED_BUILTIN,LOW);
