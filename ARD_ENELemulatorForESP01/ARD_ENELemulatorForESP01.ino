@@ -1,6 +1,7 @@
 // ===========================================================================
 // simula lkPythonRadioInterface nel momento in cui riceve i vari contatori
 // via radio e invia i suoi valori sulla seriale
+// stringa tipo "01AF114CDD" dove 01 è l'identificativo ENEL
 // ===========================================================================
 
 #include <LkArraylize.h>
