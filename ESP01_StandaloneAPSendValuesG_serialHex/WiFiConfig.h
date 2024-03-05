@@ -148,49 +148,90 @@ strcat(html,
   "};"
   // Funzione per analizzare i dati ricevuti e convertirli in un formato utilizzabile
 "function parseData(dataString) {"
-    "var rows = dataString.split(';').filter(function(row) {"
-        "return row.length > 0;"
-    "});"
-    "return rows.map(function(row) {"
-        "var values = row.split(',');"
-        "return {"
-            "deltaContatoreA: values[0],"
-            "anno: values[1],"
-            "mese: values[2],"
-            "giorno: values[3],"
-            "ora: values[4],"
-            "minuto: values[5],"
-            "secondo: values[6],"
-            "ms_deltaT: values[7],"
-            "potenza: values[8],"
-            "messaggio: values[9]"
-        "};"
-    "});"
+    "var rows = dataString.split(';');"
+    "var parsedRows = [];"
+    "for (var i = 0; i < rows.length; i++) {"
+        "if (rows[i].length > 0) {" // Filtra le righe vuote
+            "var values = rows[i].split(',');"
+            "var parsedRow = {"
+                "deltaContatoreA: values[0],"
+                "anno: values[1],"
+                "mese: values[2],"
+                "giorno: values[3],"
+                "ora: values[4],"
+                "minuto: values[5],"
+                "secondo: values[6],"
+                "ms_deltaT: values[7],"
+                "potenza: values[8],"
+                "messaggio: values[9]"
+            "};"
+            "parsedRows.push(parsedRow);"
+        "}"
+    "}"
+    "return parsedRows;"
 "}"
 "function updateTable(data) {"
     "var table = document.querySelector('table');"
-    "data.forEach(function(row, rowIndex) {"
-        "var tableRow = table.rows[rowIndex];"
-        "var colIndex = 2;"
+    "for (var rowIndex = 0; rowIndex < data.length; rowIndex++) {"
+        "var row = data[rowIndex];"
+        "var tableRow = table.rows[rowIndex] || table.insertRow(rowIndex);"
+        "var colIndex = 2;"// Inizia dalla terza cella
+        "var cellIndex = 0;" // Indice per iterare le celle
         "for (var key in row) {"
-            "if (tableRow.cells[colIndex]) {"
-                "tableRow.cells[colIndex].innerText = row[key];"
-            "} else {"
-                "var cell = tableRow.insertCell(colIndex);"
-                "cell.innerText = row[key];"
-            "}"
-            "colIndex++;"
+            "var cell = tableRow.cells[cellIndex + colIndex] || tableRow.insertCell(cellIndex + colIndex);"
+            "cell.innerText = row[key];"
+            "cellIndex++;"
         "}"
-    "});"
+    "}"
 "}"
 "</script>"
 "</body>"
 "</html>"
 );
-
-
   return html;
 }
+
+// "function updateTable(data) {"
+//     "var table = document.querySelector('table');"
+//     "var maxWidth = 60;" // Larghezza massima in pixel per il rettangolo SVG.
+//     // Calcola il valore massimo di "potenza" tra tutte le righe per la scalatura.
+//     "var maxValue = Math.max.apply(Math, data.map(function(row) {"
+//         "return Math.abs(row.potenza);"
+//     "}));"
+//     "data.forEach(function(row, rowIndex) {"
+//         "var tableRow = table.rows[rowIndex] || table.insertRow(rowIndex);"
+//         // Assicurati che la tabella abbia abbastanza celle.
+//         "while (tableRow.cells.length < 3) {"
+//             "tableRow.insertCell(tableRow.cells.length);"
+//         "}"
+//         "var cell = tableRow.cells[2];" // Colonna per il rettangolo SVG.
+//         "var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');"
+//         "svg.setAttribute('width', maxWidth);"
+//         "svg.setAttribute('height', '10');"
+//         "cell.innerHTML = '';" // Pulisci la cella.
+//         "cell.appendChild(svg);"
+//         "if (isFinite(row.potenza)) {"
+//             "var absPotenza = Math.abs(row.potenza);"
+//             "var scaledWidth = (absPotenza / maxValue) * maxWidth;"
+//             "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
+//             "rect.setAttribute('width', scaledWidth);"
+//             "rect.setAttribute('height', '10');"
+//             "rect.setAttribute('fill', getColorBasedOnValue(row.potenza));"
+//             "svg.appendChild(rect);"
+//         "}"
+//         // Aggiungi il testo con il valore di "potenza" nella cella successiva o nella stessa cella a seconda della tua preferenza.
+//         "cell.textContent = row.potenza;"
+//     "});"
+// "}"
+// "function getColorBasedOnValue(value) {"
+//     "if (value < 0) return 'gray';"
+//     "else if (value < 250) return 'green';"
+//     "else if (value < 500) return 'yellow';"
+//     "else if (value < 1000) return 'orange';"
+//     "else if (value < 2000) return 'red';"
+//     "else if (value < 3000) return 'blue';"
+//     "else return 'purple';"
+// "}"
 
 // Funzione per invertire l'ordine dei byte di un uint16_t
 uint16_t swapBytes(uint16_t value) {
@@ -252,8 +293,6 @@ void sendArrayJs() {
   for(int i = 0; i < TAB_ROWS; i++) {
       char temp[1000]; // Buffer temporaneo per un singolo elemento della struttura.
       // Serializza tutti i campi di un elemento della struttura in una stringa.
-      Serial.println(myk[i].anno);
-
       sprintf(temp, "%u,%u,%u,%u,%u,%u,%u,%lu,%d,%s;",
               myk[i].deltaContatoreA, 
               myk[i].anno, myk[i].mese, myk[i].giorno, myk[i].ora, myk[i].minuto, myk[i].secondo,
@@ -340,6 +379,7 @@ void setupWiFi() {
 
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html", getHTMLmain());
+    sendArrayJs();
   });
 
   server.begin();
