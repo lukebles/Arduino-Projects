@@ -1,114 +1,6 @@
 #ifndef MODULO_H
 #define MODULO_H
 
-const char* javascript = R"====(
-  // Apertura socket BROWSER --> ESP01 
-  var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
-  // Funzione per inserire un pulsante e aggiungere l'eventListener
-  function inserisciPulsante(idCella, testoPulsante) {
-    var cella = document.getElementById(idCella);
-    var pulsante = document.createElement('button');    
-    pulsante.addEventListener('click', function() {
-      var now = new Date();
-      var dateTimeString = now.getFullYear() + '-' + 
-        ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
-        ('0' + now.getDate()).slice(-2) + ' ' + 
-        ('0' + now.getHours()).slice(-2) + ':' + 
-        ('0' + now.getMinutes()).slice(-2) + ':' + 
-        ('0' + now.getSeconds()).slice(-2);      
-      webSocket.send(dateTimeString); // <<------- PULSANTE BROWSER -> ESP-01
-      pulsante.textContent = 'Data/Ora Aggiornata';
-    });
-    pulsante.innerText = testoPulsante;
-    cella.appendChild(pulsante);
-  }
-  // Inserimento pulsante
-  inserisciPulsante('cell-0-1', 'Clicca Qui');
-  // ==============================================
-  // Gestione del messaggio ricevuto via WebSocket
-  // ==============================================
-  webSocket.onmessage = function(event) {
-    var data = parseData(event.data);
-    updateTable(data);
-    insertSvgRectangles(data);
-  };
-  // Analizzare i dati ricevuti
-  function parseData(dataString) {
-    var rows = dataString.split(';').filter(function(row) {
-        return row.length > 0;
-    });
-    return rows.map(function(row) {
-      var values = row.split(',');
-      return {
-          //chiave: valore 
-          deltaContatoreA: values[0],
-          anno: values[1],
-          mese: values[2],
-          giorno: values[3],
-          ora: values[4],
-          minuto: values[5],
-          secondo: values[6],
-          ms_deltaT: values[7],
-          potenza: values[8],
-          messaggio: values[9]
-      };
-    }
-    );
-  }
-  function updateTable(data) {
-    var table = document.querySelector('table');
-    data.forEach(function(row, rowIndex) {
-      var tableRow = table.rows[rowIndex];
-      var colIndex = 2;
-      for (var key in row) {
-          tableRow.cells[colIndex].innerText = row[key];
-          colIndex++;
-      }
-    });
-  }
-  function insertSvgRectangles(data) {
-    var maxPotenza = Math.max.apply(Math, data.map(function(row) {
-      return row.potenza;
-    })); // Trova il valore massimo di potenza senza arrow function
-    var scaleFactor = 60 / maxPotenza; // Calcola il fattore di scala
-
-    const table = document.querySelector('table');
-    data.forEach(function(row, rowIndex) {
-      // Assicurati che la riga della tabella esista
-      var tableRow = table.rows[rowIndex];
-
-      // Assumi che la seconda colonna debba contenere il rettangolo SVG
-      var cell = tableRow.cells[1]; // Le celle sono indicizzate a partire da 0
-
-      // Crea l'elemento SVG
-      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('width', '61'); // Larghezza fissa dell'SVG
-      svg.setAttribute('height', '20'); // Altezza fissa dell'SVG
-
-      // Crea il rettangolo SVG
-      var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      var rectWidth = row.potenza * scaleFactor + 3 ;
-      rect.setAttribute('width', rectWidth); // Usa "potenza" per definire la larghezza
-      rect.setAttribute('height', '20'); // Altezza fissa del rettangolo
-      rect.setAttribute('fill', getColorBasedOnValue(row.potenza)); // Colore di riempimento del rettangolo
-
-      // Aggiungi il rettangolo all'SVG, e l'SVG alla cella della tabella
-      svg.appendChild(rect);
-      cell.innerHTML = ''; // Pulisci il contenuto precedente della cella
-      cell.appendChild(svg);
-    });
-  }
-  function getColorBasedOnValue(value) {
-    if (value < 0) return 'gray'; // Numeri negativi.
-    else if (value < 250) return 'green';
-    else if (value < 500) return 'yellow';
-    else if (value < 1000) return 'orange';
-    else if (value < 2000) return 'red';
-    else if (value < 3000) return 'blue';
-    else return 'purple'; // Valori >= 3000.
-  }
-)====";
-
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <WebSocketsServer_Generic.h>
@@ -168,19 +60,25 @@ char* getHTMLmain() {
   // Parte iniziale dell'HTML
   // ========================
   strcat(html,
-         "<!DOCTYPE html>"
-         "<html lang=\"it\">"
-         "<head>"
-         "<meta charset=\"UTF-8\">"
-         "<title>Tabella con SVG e Pulsante</title>"
-         "<style>"
-         "table, th, td {border: 1px solid black;; border-collapse: collapse; padding: 0}"
-         "th, td {padding: 0; margin: 0; text-align: right;}"
-         ".svg-cell {padding: 0; margin: 0;}"
-         "</style>"
-         "</head>"
-         "<body>"
-         "<table>");
+    "<!DOCTYPE html>"
+    "<html lang=\"it\">"
+    "<head>"
+      "<meta charset=\"UTF-8\">"
+      "<title>Tabella con SVG e Pulsante</title>"
+      "<style>"
+      "* {font-family:monospace}"
+      "table, th, td {border: 1px solid black;; border-collapse: collapse; padding: 0}"
+      "th, td {padding: 0; margin: 0; text-align: right;}"
+      ".svg-cell {padding: 0; margin: 0;}"
+      "</style>"
+    "</head>"
+    "<body>"
+    "<table><tr>"
+    "<td><a href=/>Home</a></td>"
+    "<td><a href=/setTime>Set Time</a></td>"
+    "<td><a href=/getEnergyHours>Get Energy Hours</a></td>"
+    "</tr></table>" 
+    "<table id = 'tabellaSvg'>");
 
   // ========
   // tabella
@@ -206,51 +104,117 @@ char* getHTMLmain() {
   // ==================
   // Script JavaScript
   // ==================
-  strcat(html, "<script>");
-  strcat(html, javascript);
-  strcat(html, "</script>"
-               "</body>"
-               "</html>");
+  strcat(html, 
+  "<script>"
+  // Apertura socket BROWSER --> ESP01 "
+  "var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');"
+  // Funzione per inserire un pulsante e aggiungere l'eventListener"
+  "function inserisciPulsante(idCella, testoPulsante) {"
+    "var cella = document.getElementById(idCella);"
+    "var pulsante = document.createElement('button');    "
+    "pulsante.addEventListener('click', function() {"
+      "var now = new Date();"
+      "var dateTimeString = now.getFullYear() + '-' + "
+        "('0' + (now.getMonth() + 1)).slice(-2) + '-' + "
+        "('0' + now.getDate()).slice(-2) + ' ' + "
+        "('0' + now.getHours()).slice(-2) + ':' + "
+        "('0' + now.getMinutes()).slice(-2) + ':' + "
+        "('0' + now.getSeconds()).slice(-2);      "
+      "webSocket.send(dateTimeString);" // <<------- PULSANTE BROWSER -> ESP-01"
+      "pulsante.textContent = 'Data/Ora Aggiornata';"
+    "});"
+    "pulsante.innerText = testoPulsante;"
+    "cella.appendChild(pulsante);"
+  "}"
+  // Inserimento pulsante"
+  "inserisciPulsante('cell-0-1', 'Clicca Qui');"
+  // =============================================="
+  // Gestione del messaggio ricevuto via WebSocket"
+  // =============================================="
+  "webSocket.onmessage = function(event) {"
+    "var data = parseData(event.data);"
+    "updateTable(data);"
+    "insertSvgRectangles(data);"
+  "};"
+  // Analizzare i dati ricevuti"
+  "function parseData(dataString) {"
+    "var rows = dataString.split(';').filter(function(row) {"
+        "return row.length > 0;"
+    "});"
+    "return rows.map(function(row) {"
+      "var values = row.split(',');"
+      "return {"
+          //chiave: valore "
+          "deltaContatoreA: values[0],"
+          "anno: values[1],"
+          "mese: values[2],"
+          "giorno: values[3],"
+          "ora: values[4],"
+          "minuto: values[5],"
+          "secondo: values[6],"
+          "ms_deltaT: values[7],"
+          "potenza: values[8],"
+          "messaggio: values[9]"
+      "};"
+    "}"
+    ");"
+  "}"
+  "function updateTable(data) {"
+    "var table = document.getElementById('tabellaSvg');"
+    "data.forEach(function(row, rowIndex) {"
+      "var tableRow = table.rows[rowIndex];"
+      "var colIndex = 2;"
+      "for (var key in row) {"
+          "tableRow.cells[colIndex].innerText = row[key];"
+          "colIndex++;"
+      "}"
+    "});"
+  "}"
+  "function insertSvgRectangles(data) {"
+    "var maxPotenza = Math.max.apply(Math, data.map(function(row) {"
+      "return row.potenza;"
+    "}));" // Trova il valore massimo di potenza senza arrow function"
+    "var scaleFactor = 60 / maxPotenza;" // Calcola il fattore di scala"
+    "var table = document.getElementById('tabellaSvg');"
+    "data.forEach(function(row, rowIndex) {"
+      // Assicurati che la riga della tabella esista"
+      "var tableRow = table.rows[rowIndex];"
+      // Assumi che la seconda colonna debba contenere il rettangolo SVG"
+      "var cell = tableRow.cells[1];" // Le celle sono indicizzate a partire da 0"
+      // Crea l'elemento SVG"
+      "var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');"
+      "svg.setAttribute('width', '61');" // Larghezza fissa dell'SVG"
+      "svg.setAttribute('height', '20');" // Altezza fissa dell'SVG"
+      // Crea il rettangolo SVG"
+      "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
+      "var rectWidth = row.potenza * scaleFactor + 3 ;"
+      "rect.setAttribute('width', rectWidth);"
+      "rect.setAttribute('height', '20');" // Altezza fissa del rettangolo"
+      "rect.setAttribute('fill', getColorBasedOnValue(row.potenza));" // Colore di riempimento del rettangolo"
+      // Aggiungi il rettangolo all'SVG, e l'SVG alla cella della tabella"
+      "svg.appendChild(rect);"
+      "cell.innerHTML = '';" // Pulisci il contenuto precedente della cella"
+      "cell.appendChild(svg);"
+    "});"
+  "}"
+  "function getColorBasedOnValue(value) {"
+    "if (value < 0) return 'gray';" // Numeri negativi."
+    "else if (value < 250) return 'green';"
+    "else if (value < 500) return 'yellow';"
+    "else if (value < 1000) return 'orange';"
+    "else if (value < 2000) return 'red';"
+    "else if (value < 3000) return 'blue';"
+    "else return 'purple';" // Valori >= 3000."
+  "}"
+  "</script>"
+  "</body>"
+  "</html>"
+  );
+
   return html;
 }
 
-// "function updateTable(data) {"
-//     "var table = document.querySelector('table');"
-//     "var maxWidth = 60;" // Larghezza massima in pixel per il rettangolo SVG.
-//     // Calcola il valore massimo di "potenza" tra tutte le righe per la scalatura.
-//     "var maxValue = Math.max.apply(Math, data.map(function(row) {"
-//         "return Math.abs(row.potenza);"
-//     "}));"
-//     "data.forEach(function(row, rowIndex) {"
-//         "var tableRow = table.rows[rowIndex] || table.insertRow(rowIndex);"
-//         "var cell = tableRow.cells[2];" // Colonna per il rettangolo SVG.
-//         "var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');"
-//         "svg.setAttribute('width', maxWidth);"
-//         "svg.setAttribute('height', '10');"
-//         "cell.innerHTML = '';" // Pulisci la cella.
-//         "cell.appendChild(svg);"
-//         "if (isFinite(row.potenza)) {"
-//             "var absPotenza = Math.abs(row.potenza);"
-//             "var scaledWidth = (absPotenza / maxValue) * maxWidth;"
-//             "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
-//             "rect.setAttribute('width', scaledWidth);"
-//             "rect.setAttribute('height', '10');"
-//             "rect.setAttribute('fill', getColorBasedOnValue(row.potenza));"
-//             "svg.appendChild(rect);"
-//         "}"
-//         // Aggiungi il testo con il valore di "potenza" nella cella successiva o nella stessa cella a seconda della tua preferenza.
-//         "cell.textContent = row.potenza;"
-//     "});"
-// "}"
-// "function getColorBasedOnValue(value) {"
-//     "if (value < 0) return 'gray';"
-//     "else if (value < 250) return 'green';"
-//     "else if (value < 500) return 'yellow';"
-//     "else if (value < 1000) return 'orange';"
-//     "else if (value < 2000) return 'red';"
-//     "else if (value < 3000) return 'blue';"
-//     "else return 'purple';"
-// "}"
+
 
 // Funzione per invertire l'ordine dei byte di un uint16_t
 uint16_t swapBytes(uint16_t value) {
