@@ -1,6 +1,11 @@
 #ifndef INCOMUNE_H
 #define INCOMUNE_H
 
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <WebSocketsServer_Generic.h>
+#include <TimeLib.h>
+
 #define TAB_ROWS 24
 #define TAB_COLUMNS 5
 

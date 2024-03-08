@@ -64,7 +64,7 @@ void loop() {
     // invio il messaggio sulla seriale 
     Serial.print(hexstring); 
 
-    delay(8863); // simulazione (dovrebbe essere nella realtà 8 secondi)
+    delay(2000); // simulazione (dovrebbe essere nella realtà 8 secondi)
   }
 }
 

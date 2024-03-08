@@ -40,7 +40,7 @@ char* getHTMLsetTime() {
       sprintf(cell, "<td id='cell-%d-%d'></td>", col, row);
       strcat(html, cell);
     }
-    strcat(html, "</tr>");
+    strcat(html, "</tr>\n");
   }
   // ==================
   // Script JavaScript
@@ -120,6 +120,8 @@ char* getHTMLmain() {
     "<td><a href=/>Home</a></td>"
     "<td><a href=/setTime>Set Time</a></td>"
     "<td><a href=/getEnergyHours>Get Energy Hours</a></td>"
+    "<td><a href=/getEnergyDays>Get Energy Days</a></td>"
+
     "</tr></table>" 
     "<table id = 'tabellaSvg'>"
     );
@@ -135,8 +137,7 @@ char* getHTMLmain() {
         sprintf(cell, "<td class='svg-cell'>"
                       "<svg id='svg-%d-%d'>"
                       "</svg>"
-                      "</td>",
-                col, row);
+                      "</td>",col, row);
         strcat(html, cell);
       } else {
         sprintf(cell, "<td id='cell-%d-%d'></td>", col, row);
@@ -149,6 +150,8 @@ char* getHTMLmain() {
   // Script JavaScript
   // ==================
   strcat(html, 
+  "</tbody>"
+  "</table>"
   "<script>"
   // Apertura socket BROWSER --> ESP01 "
   "var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');"

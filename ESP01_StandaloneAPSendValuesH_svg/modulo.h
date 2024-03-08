@@ -1,18 +1,16 @@
 #ifndef MODULO_H
 #define MODULO_H
 
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-#include <WebSocketsServer_Generic.h>
-#include <TimeLib.h>
 #include "incomune.h"
 #include "pagineweb.h"
+#include "taborario.h"
+#include "tabgiorni.h"
 
 // Configurazioni WiFi
 const char* ssid = "sid";
 const char* password = "pw12345678";
 
-int ptIdxArray = 0;  // Numero corrente di valori nell'array
+int ptIdxArray = TAB_ROWS-1;  // Numero corrente di valori nell'array
 
 uint8_t ID;
 uint16_t CONTATOREa, CONTATOREb;
@@ -43,6 +41,7 @@ struct Tabella {
   char messaggio[11];
 };
 Tabella myk[TAB_ROWS];
+
 
 bool primoAvvio = true;
 
@@ -95,6 +94,8 @@ void inserisci(unsigned long adesso, uint16_t CONTATOREa, uint16_t CONTATOREb) {
     //
     myk[ptIdxArray].potenza = calcolaPotenza(myk[ptIdxArray].deltaContatoreA, myk[ptIdxArray].ms_deltaT);
     //
+    fillHorsColumns(myk[ptIdxArray].deltaContatoreA); // riempie le colonne data ora
+    filldaysColumns(myk[ptIdxArray].deltaContatoreA);
   }
 }
 
@@ -190,6 +191,17 @@ void setupWiFi() {
     server.send(200, "text/html", getHTMLsetTime());
   });
 
+  server.on("/getEnergyHours", HTTP_GET, []() {
+    char htmlTable[MAX_HTML_SIZE];
+    generateHTMLTable(htmlTable);
+    server.send(200, "text/html", htmlTable);
+  });
+
+  server.on("/getEnergyDays", HTTP_GET, []() {
+    char htmlTable[MAX_HTML_SIZE];
+    generateHTMLTableDays(htmlTable);
+    server.send(200, "text/html", htmlTable);
+  });
 
   server.begin();
   webSocket.begin();
