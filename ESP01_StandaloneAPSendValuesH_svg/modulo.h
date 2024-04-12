@@ -88,14 +88,29 @@ void inserisci(unsigned long adesso, uint16_t CONTATOREa, uint16_t CONTATOREb) {
     myk[ptIdxArray].potenza = 0;
 
   } else {
-    myk[ptIdxArray].ms_deltaT = adesso - previous_time_ENEL;
-    myk[ptIdxArray].deltaContatoreA = myk[ptIdxArray].contatoreA - myk[ptIdxArray - 1].contatoreA;
-    myk[ptIdxArray].deltaContatoreR = myk[ptIdxArray].contatoreR - myk[ptIdxArray - 1].contatoreR;
-    //
-    myk[ptIdxArray].potenza = calcolaPotenza(myk[ptIdxArray].deltaContatoreA, myk[ptIdxArray].ms_deltaT);
-    //
-    fillHorsColumns(myk[ptIdxArray].deltaContatoreA); // riempie le colonne data ora
-    filldaysColumns(myk[ptIdxArray].deltaContatoreA);
+    // prima di inserire i valori nell'array, verifica che i dati ricevuti siano sensati.
+    // un tempo più lungo di un'ora dall'ultima ricezione o dei valori di differenza
+    // dei contatori superiori a 3600 Wh non sono regolari.
+    // Infatti di solito i conteggi dei secondi sono dell'ordine delle decine di secondi
+    // e gli stessi numeri (anche inferiori, dipende dal consumo) riguardano
+    // il delta-energia.
+    unsigned long chk_time = adesso - previous_time_ENEL;
+    uint16_t chk_powerA = myk[ptIdxArray].contatoreA - myk[ptIdxArray - 1].contatoreA;
+    uint16_t chk_powerR = myk[ptIdxArray].contatoreR - myk[ptIdxArray - 1].contatoreR;    
+    if ((chk_time > 3600000) || (chk_powerA > 3600) || (chk_powerR > 3600)){
+      // non fa niente se mi trovo in una situazione strana 
+      // fa finta di non avere ricevuto nulla e non inserisce niente nell'array
+    }else{ 
+      // i dati ricevuti sono regolari e quindi li accetto
+      myk[ptIdxArray].ms_deltaT = adesso - previous_time_ENEL;
+      myk[ptIdxArray].deltaContatoreA = myk[ptIdxArray].contatoreA - myk[ptIdxArray - 1].contatoreA;
+      myk[ptIdxArray].deltaContatoreR = myk[ptIdxArray].contatoreR - myk[ptIdxArray - 1].contatoreR;
+      //
+      myk[ptIdxArray].potenza = calcolaPotenza(myk[ptIdxArray].deltaContatoreA, myk[ptIdxArray].ms_deltaT);
+      //
+      fillHorsColumns(myk[ptIdxArray].deltaContatoreA); // riempie le colonne data ora
+      filldaysColumns(myk[ptIdxArray].deltaContatoreA);
+    }
   }
 }
 

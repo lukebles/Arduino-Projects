@@ -244,11 +244,22 @@ void radioMessage2arduino(){
           // calcoli
           float delta_tempo_sec = float(diffmillis)/1000.0;
           float delta_energia_wh = float(diffEnergia);
-          // determinazione della potenza attiva istantanea
-          float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
-          // verifica se c'è pericolo di distacco energia
-          if (potenzaAttiva > 3700.0){
-            allarme_badenia.enable(); 
+
+          // evita di fare suonare la campanella in situazioni dubbie
+          // cioè quando è passato troppo tempo dall'ultima ricezione o 
+          // il conteggio dell'energia consumata nell'intervallo è troppo alta
+          // Infatti di solito i conteggi dei secondi sono dell'ordine delle decine di secondi
+          // e gli stessi numeri (anche inferiori, dipende dal consumo) riguardano
+          // il delta-energia.
+          if (delta_tempo_sec > 3600.0) || (delta_energia_wh > 3600.0) {
+            // non fa niente se mi trovo in una situazione strana
+          } else {
+            // determinazione della potenza attiva istantanea
+            float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
+            // verifica se c'è pericolo di distacco energia
+            if (potenzaAttiva > 3700.0){
+              allarme_badenia.enable(); 
+            }
           }
         }
       }
