@@ -219,7 +219,7 @@ char* getHTMLmain() {
       "svg.setAttribute('height', '13');" // Altezza fissa dell'SVG"
       // Crea il rettangolo SVG"
       "var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');"
-      "var rectWidth = row.potenza * scaleFactor + 3 ;"
+      "var rectWidth = row.potenza * scaleFactor + 1 ;"
       "rect.setAttribute('width', rectWidth);"
       "rect.setAttribute('height', '12');" // Altezza fissa del rettangolo"
       "rect.setAttribute('fill', getColorBasedOnValue(row.potenza));" // Colore di riempimento del rettangolo"

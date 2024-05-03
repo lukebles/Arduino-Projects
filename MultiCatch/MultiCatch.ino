@@ -4,6 +4,7 @@
 #include <LkBlinker.h>
 #include <LkArraylize.h>
 
+// 3/5/2024 - il programma invia i dati ENEL sulla seriale solo dopo aver verificato che siano dati "sensati" 
 // 2 feb 2024 - inserimento del distacco ENEL direttamnte nel codice ARDUINO
 
 //
@@ -201,6 +202,9 @@ void radioMessage2arduino(){
   // =================================================
   uint8_t buf[VW_MAX_MESSAGE_LEN];
   uint8_t buflen = VW_MAX_MESSAGE_LEN;
+
+  bool sendToESP01 = false;
+
   String hexstring = "";
   if (vw_get_message(buf, &buflen)) {
     for (int i = 0; i < buflen; i++) {
@@ -211,10 +215,6 @@ void radioMessage2arduino(){
     }
     hexstring += "\n";        // end message
     
-    digitalWrite(LED_BUILTIN,HIGH);
-    Serial.print(hexstring);  // sending the message to the PC
-    digitalWrite(LED_BUILTIN,LOW);
-
     // ==========================================
     // GESTIONE DEL POSSIBILE DISTACCO ENEL
     // DIRETTAMENTE DA ARDUINO
@@ -255,7 +255,16 @@ void radioMessage2arduino(){
           // il delta-energia.
           if ((delta_tempo_sec > 3600.0) || (delta_energia_wh > 3600.0)) {
             // non fa niente se mi trovo in una situazione strana
+            // dove o il tempo passato è superiore ad un'ora (oppure c'è un errore nel conteggio)
+            // oppure il numero di conteggi di energia sono superiori a 3600Wh.
+            // ATTENZIONE NON E' UN CONTROSENSO normalmente i conteggi ricevuti sono dell'ordine delle decine
+            // massimo 10-12 se ricevute nell'arco degli 8-9 secondi circa.
+            // se questi 10-12 diventano un numero superiore a 3600 qualcosa di strano è successo.
+            // stesso discorso per i secondi: se gli 8-9 secondi diventano un'ora o anche più
+            // è una situazione che non deve essere presa in considerazione
           } else {
+            // i dati ENEL ricevuti sono regolari: provvedo ad inviarli al PC (ESP-01)
+            sendToESP01 = true;
             // determinazione della potenza attiva istantanea
             float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
             // verifica se c'è pericolo di distacco energia
@@ -264,7 +273,20 @@ void radioMessage2arduino(){
             }
           }
         }
+      } else {
+        // --------------------
+        // se non è il modulo ENEL invia il messaggio al PC (a ESP-01 in realtà)
+        // ---------------------
+        sendToESP01 = true;
       }
-    } // FINE CONTROLLO DISTACCO    
+    } // FINE CONTROLLO DISTACCO   
+
+    // invia il messaggio ricevuto a ESP-01
+    if (sendToESP01) {
+      digitalWrite(LED_BUILTIN,HIGH);
+      Serial.print(hexstring);  // sending the message to the PC
+      digitalWrite(LED_BUILTIN,LOW);
+    }
+
   }
 }
