@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <button id='button'>Invia ID</button>
+    <input type='text' id='textBox' placeholder='Testo ricevuto'>
+    <script>
+        // Creazione della connessione WebSocket
+        var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
+
+        // Gestore dell'evento per i messaggi ricevuti
+        webSocket.onmessage = function(event) {
+            // Inserisce il messaggio ricevuto nella casella di testo
+            document.getElementById('textBox').value = event.data;
+            
+            // Imposta un timeout per inviare il messaggio riformattato dopo 100 millisecondi
+            setTimeout(function() {
+                var responseMessage = "Ricevuto: " + event.data;
+                webSocket.send(responseMessage);
+            }, 100);
+        };
+
+        // Assegna un gestore di eventi al bottone per inviare il contenuto della casella di testo
+        document.getElementById('button').addEventListener('click', function() {
+            // Ottiene il valore dalla casella di testo
+            var textToSend = document.getElementById('textBox').value;
+            // Invia il valore tramite WebSocket
+            webSocket.send(textToSend);
+        });
+    </script>
+</body>
+</html>

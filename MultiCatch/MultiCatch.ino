@@ -268,7 +268,15 @@ void radioMessage2arduino(){
             // determinazione della potenza attiva istantanea
             float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
             // verifica se c'è pericolo di distacco energia
-            if (potenzaAttiva > 3700.0){
+            if (potenzaAttiva > 3800.0){ // fino a 4000 siamo abbastanza sicuri che non scatti
+              //
+              // https://www.e-distribuzione.it/open-meter/come-leggere-contatore-luce.html
+              // "Il contatore consente, per un tempo illimitato, la disponibilità di una potenza 
+              // fino al 10% superiore rispetto alla potenza impegnata, sottoscritta a livello contrattuale. 
+              // Per esempio, per un contratto da 3 kW è possibile prelevare senza limiti di tempo fino a 3,3 kW. 
+              // Inoltre, se si superano i 3,3 kW, viene data la possibilità di prelevare fino a 4 kW 
+              // per almeno tre ore. Se si preleva una potenza superiore ai 4 kW, il dispositivo 
+              // per il controllo della fornitura di energia elettrica scatta entro due minuti."
               allarme_badenia.enable(); 
             }
           }

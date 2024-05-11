@@ -46,6 +46,7 @@ char* getHTMLsetTime() {
   // Script JavaScript
   // ==================
   strcat(html, 
+  "</table>" 
   "<script>"
   // Apertura socket BROWSER --> ESP01 "
   "var webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');"
@@ -150,7 +151,6 @@ char* getHTMLmain() {
   // Script JavaScript
   // ==================
   strcat(html, 
-  "</tbody>"
   "</table>"
   "<script>"
   // Apertura socket BROWSER --> ESP01 "
