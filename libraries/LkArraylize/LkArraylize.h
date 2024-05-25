@@ -64,6 +64,7 @@ private:
         T value;
         uint8_t byteArray[sizeof(T)];
     };
+    void swapBytes(uint8_t *byteArray, size_t size);
 };
 
 // implementation
@@ -71,6 +72,7 @@ template<class T>
 void LkArraylize<T>::arraylize(uint8_t *array, T value) {
     WorkBasket basket;
     basket.value = value;
+    swapBytes(basket.byteArray, sizeof(T)); // Inverti i byte se necessario
     for (size_t i = 0; i < sizeof(T); i++) {
         array[i] = basket.byteArray[i];
     }
@@ -82,7 +84,18 @@ T LkArraylize<T>::deArraylize(uint8_t *array) {
     for (size_t i = 0; i < sizeof(T); i++) {
         basket.byteArray[i] = array[i];
     }
+    swapBytes(basket.byteArray, sizeof(T)); // Inverti i byte se necessario
     return basket.value;
 }
 
+template<class T>
+void LkArraylize<T>::swapBytes(uint8_t *byteArray, size_t size) {
+    for (size_t i = 0; i < size / 2; i++) {
+        uint8_t temp = byteArray[i];
+        byteArray[i] = byteArray[size - 1 - i];
+        byteArray[size - 1 - i] = temp;
+    }
+}
+
 #endif
+

@@ -2,63 +2,94 @@
 
 const int LED_PIN = 13;
 const int TRANSMIT_PIN = 12;
-const int RECEIVE_PIN = 11;
-const int RADIO_SPEED = 2000;
 
-struct MyStruct {
-  uint8_t sender; // 1 byte
-  uint8_t function; // 1 byte
-  unsigned long timestamp; // Arduino Uno: 4 bytes 
+struct __attribute__((packed)) StructureA {
+    byte sender; // 1 byte
+    uint16_t value1; // 2 bytes
+    float value2; // 4 bytes
+    double value3; // 4 bytes
+    char text[11]; // 11 bytes
 };
 
-struct MyStructB {
-  uint8_t sender; // 1 byte
-  uint8_t function; // 1 byte
-  int integer1; // Arduino Uno: 2 bytes 
-  int integer2; // Arduino Uno: 2 bytes
+struct __attribute__((packed)) StructureB {
+    byte sender; // 1 byte
+    double value10; // 4 bytes
+    char data[11]; // 11 bytes
+    uint16_t value11; // 2 bytes
+    float value12; // 4 bytes
 };
 
-LkRadioStructure<MyStruct> myStructRadio;
-LkRadioStructure<MyStructB> myStructBRadio;
+LkRadioStructure<StructureA> radioA;
+LkRadioStructure<StructureB> radioB;
 
 void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  LkRadioStructure<MyStruct>::globalSetup(RADIO_SPEED, TRANSMIT_PIN, RECEIVE_PIN);
+    pinMode(LED_PIN, OUTPUT);
+    Serial.begin(115200);
+    while (!Serial) {
+        ; // aspetta la connessione del porto seriale
+    }
+    Serial.println("setup");
 
-  Serial.begin(115200);
-  while (!Serial) {
-    ; // aspetta la connessione del porto seriale
-  }
-  Serial.println("setup");
+    radioA.globalSetup(2000, TRANSMIT_PIN, -1);  // Solo trasmissione
 }
 
 void loop() {
-  sendMyStruct();
-  delay(1000);
+    StructureA dataToSendA = prepareDataA();
+    StructureB dataToSendB = prepareDataB();
 
-  sendMyStructB();
-  delay(1000);
+    radioA.sendStructure(dataToSendA);
+
+    Serial.println("Transmitted data for StructureA:");
+    Serial.print("sender: ");
+    Serial.println(dataToSendA.sender);
+    Serial.print("value1: ");
+    Serial.println(dataToSendA.value1);
+    Serial.print("value2: ");
+    Serial.println(dataToSendA.value2, 10);  // Print with 10 decimal places
+    Serial.print("value3: ");
+    Serial.println(dataToSendA.value3, 10);  // Print with 10 decimal places
+    Serial.print("text: ");
+    Serial.println(dataToSendA.text);
+
+    delay(2500);  // Wait for 2.5 seconds before sending again
+
+    radioB.sendStructure(dataToSendB);
+
+    Serial.println("----");
+
+    Serial.println("Transmitted data for StructureB:");
+    Serial.print("sender: ");
+    Serial.println(dataToSendB.sender);
+    Serial.print("value10: ");
+    Serial.println(dataToSendB.value10, 10);  // Print with 10 decimal places
+    Serial.print("data: ");
+    Serial.println(dataToSendB.data);
+    Serial.print("value11: ");
+    Serial.println(dataToSendB.value11);
+    Serial.print("value12: ");
+    Serial.println(dataToSendB.value12, 10);  // Print with 10 decimal places
+
+    delay(2500);  // Wait for 2.5 seconds before sending again
 }
 
-void sendMyStruct() {
-  MyStruct data;
-  data.sender = 123;
-  data.function = 1;
-  data.timestamp = 100000000L;
-
-  digitalWrite(LED_PIN, HIGH);
-  myStructRadio.sendStructure(data);
-  digitalWrite(LED_PIN, LOW);
+StructureA prepareDataA() {
+    StructureA data;
+    data.sender = 1;
+    data.value1 = 12345;
+    data.value2 = 12345.6789f;
+    data.value3 = 2.718;
+    strncpy(data.text, "ciao123456", sizeof(data.text) - 1);  // Safe copy
+    data.text[sizeof(data.text) - 1] = '\0';  // Ensure null-termination
+    return data;
 }
 
-void sendMyStructB() {
-  MyStructB data;
-  data.sender = 99;
-  data.function = 2;
-  data.integer1 = -1000;
-  data.integer2 = 32109;
-
-  digitalWrite(LED_PIN, HIGH);
-  myStructBRadio.sendStructure(data);
-  digitalWrite(LED_PIN, LOW);
+StructureB prepareDataB() {
+    StructureB data;
+    data.sender = 2;
+    data.value10 = 3.1415;
+    strncpy(data.data, "data1234567", sizeof(data.data) - 1);  // Safe copy
+    data.data[sizeof(data.data) - 1] = '\0';  // Ensure null-termination
+    data.value11 = 54321;
+    data.value12 = 9876.5432f;
+    return data;
 }

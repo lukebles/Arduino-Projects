@@ -22,75 +22,92 @@
 // della serializzazione dei dati e della trasmissione radio, consentendo agli sviluppatori di concentrarsi sulla 
 // funzionalità principale delle loro applicazioni.
 
+#ifndef LK_RADIOSTRUCTURE_H
+#define LK_RADIOSTRUCTURE_H
+
 #include <VirtualWire.h>
-#include <LkArraylize.h>
+#include "LkArraylize.h"
 
 class RadioInitializer {
 public:
-    static void initialize(int speed, uint8_t transmit_pin, uint8_t receive_pin) {
+    static void initialize(int speed, int8_t transmit_pin = -1, int8_t receive_pin = -1, int8_t ptt_pin = -1, bool ptt_inverted = false) {
         static bool isInitialized = false;
         if (!isInitialized) {
-            vw_set_tx_pin(transmit_pin);
-            vw_set_rx_pin(receive_pin);
+            if (transmit_pin != -1) {
+                vw_set_tx_pin(transmit_pin);
+            }
+            if (receive_pin != -1) {
+                vw_set_rx_pin(receive_pin);
+            }
+            if (ptt_pin != -1) {
+                vw_set_ptt_pin(ptt_pin);
+                vw_set_ptt_inverted(ptt_inverted);
+            }
             vw_setup(speed);
-            vw_rx_start();
+            if (receive_pin != -1) {
+                vw_rx_start();
+            }
             isInitialized = true;
         }
     }
 };
 
-template<class T>     // C++ template syntax
-class LkRadioStructure{
-
+template<class T>
+class LkRadioStructure {
 private:
-  T _retStructure;
-  bool _have_structure = false;
-  unsigned long _microsec;
+    T _retStructure;
+    bool _have_structure = false;
+    unsigned long _microsec = 0;
+    uint8_t _rawBuffer[VW_MAX_MESSAGE_LEN];
+    uint8_t _rawBufferLen = 0;
 
 public:
-  static void globalSetup(int speed, uint8_t transmit_pin, uint8_t receive_pin) {
-        RadioInitializer::initialize(speed, transmit_pin, receive_pin);
-  }
+    static void globalSetup(int speed, int8_t transmit_pin = -1, int8_t receive_pin = -1, int8_t ptt_pin = -1, bool ptt_inverted = false) {
+        RadioInitializer::initialize(speed, transmit_pin, receive_pin, ptt_pin, ptt_inverted);
+    }
 
-  static void globalSetup(int speed, uint8_t transmit_pin, uint8_t receive_pin, uint8_t ptt_pin, bool ptt_inverted) {
-      vw_set_ptt_pin(ptt_pin);
-      vw_set_ptt_inverted(ptt_inverted);   
-      globalSetup(speed, transmit_pin, receive_pin);
-  }
+    bool haveRawMessage() {
+        uint8_t buf[VW_MAX_MESSAGE_LEN];
+        uint8_t buflen = VW_MAX_MESSAGE_LEN;
 
-  bool have_structure(){
-    uint8_t buf[VW_MAX_MESSAGE_LEN];
-    uint8_t buflen = VW_MAX_MESSAGE_LEN;
+        if (vw_have_message()) {
+            _microsec = micros(); // Track the microseconds at which the signal was received
+            if (vw_get_message(buf, &buflen)) {
+                memcpy(_rawBuffer, buf, buflen);
+                _rawBufferLen = buflen;
+                _have_structure = true;
+                return true;
+            }
+        }
+        return false;
+    }
 
-    if (vw_have_message()) {
-      _microsec = micros(); // Track the microseconds at which the signal was received.
-      if (vw_get_message(buf, &buflen)) {
-        if(buflen == sizeof(T)){
-          LkArraylize<T> T_o;
-          _retStructure = T_o.deArraylize(buf);
-          _have_structure = true;
-        } 
-      } 
-    } 
-    return _have_structure;
-  }
+    void getRawBuffer(uint8_t* buffer, uint8_t &length) const {
+        memcpy(buffer, _rawBuffer, _rawBufferLen);
+        length = _rawBufferLen;
+    }
 
-  T getStructure(){
-    _have_structure = false;
-    return _retStructure;
-  }
-  
-  void sendStructure(const T& value){
-    uint8_t buf[sizeof(T)];
-    LkArraylize<T> T_o;
-    T_o.arraylize(buf, value);
-    //
-    vw_send((uint8_t *)buf, sizeof(buf));
-    vw_wait_tx();
-  }
+    T getStructure() {
+        LkArraylize<T> T_o;
+        _retStructure = T_o.deArraylize(_rawBuffer);
+        _have_structure = false;
+        return _retStructure;
+    }
 
-  unsigned long getMicrosec() const {
-    return _microsec;
-  }
+    void sendStructure(const T& value) {
+        uint8_t buf[sizeof(T)];
+        LkArraylize<T> T_o;
+        T_o.arraylize(buf, value);
+
+        vw_send(buf, sizeof(buf));
+        vw_wait_tx();
+    }
+
+    unsigned long getMicrosec() const {
+        return _microsec;
+    }
 };
+
+#endif // LK_RADIOSTRUCTURE_H
+
 

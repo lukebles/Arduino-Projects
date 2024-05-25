@@ -1,11 +1,12 @@
-#include <ESP8266WebServer.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncWebServer.h>
 #include <WebSocketsServer_Generic.h>
 #include "LittleFS.h"
- 
+
 const char* ssid = "sid2";           // Sostituisci con il nome della tua rete
 const char* password = "pw12345678";  // Sostituisci con la tua password
 
-ESP8266WebServer server(80);
+AsyncWebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 void setup() {
@@ -21,21 +22,25 @@ void setup() {
   
   WiFi.softAP(ssid, password);
 
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/main.html", "text/html");
+  });
 
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/Chart.min.js", HTTP_GET, handleChartJS);
-    server.begin();
+  server.on("/Chart.min.js", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/Chart.min.js", "application/javascript");
+  });
 
-    Serial.println();
-    Serial.println("HTTP server started");
+  server.begin();
+  Serial.println();
+  Serial.println("HTTP server started");
 
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent);
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
 }
  
 void loop() {
-  server.handleClient();
-
+  // Non è necessario chiamare server.handleClient() con ESPAsyncWebServer
+  webSocket.loop();
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
@@ -43,24 +48,3 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length)
     Serial.println((char*)payload);
   }
 }
-
-void handleRoot() {
-    File file = LittleFS.open("/main.html", "r");
-    if (!file) {
-        server.send(404, "text/plain", "File not found");
-        return;
-    }
-    size_t sent = server.streamFile(file, "text/html");
-    file.close();
-}
-
-void handleChartJS() {
-    File file = LittleFS.open("/Chart.min.js", "r");
-    if (!file) {
-        server.send(404, "text/plain", "File not found");
-        return;
-    }
-    size_t sent = server.streamFile(file, "application/javascript");
-    file.close();
-}
-

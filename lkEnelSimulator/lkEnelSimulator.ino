@@ -4,7 +4,6 @@
 //
 
 const uint8_t transmit_pin = 12;
-const uint8_t receive_pin = 99; // not used (only TX is used)
 const int speed = 2000;
 
 #include <LkRadioStructure.h>
@@ -23,7 +22,7 @@ uint16_t pulsesPowerReactive = 12345;
 
 void setup() {
   // radio setup just one for all instances of LkRadioStructure
-  txData1_o.globalSetup(speed, transmit_pin, receive_pin);
+  txData1_o.globalSetup(speed, transmit_pin, -1);
   Serial.begin(115200);
   delay(500);
   pinMode(LED_BUILTIN,OUTPUT);

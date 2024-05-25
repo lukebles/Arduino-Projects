@@ -1,43 +1,60 @@
 #include <LkRadioStructure.h>
 
-const int TRANSMIT_PIN = 12;
-const int RECEIVE_PIN = 11;
-const int RADIO_SPEED = 2000;
 const int LED_PIN = 13;
+const int RECEIVE_PIN = 11;
 
-struct MyStruct {
-  uint8_t mittente;
-  unsigned long timestamp;
+struct __attribute__((packed)) StructureA {
+    byte sender; // 1 byte
+    uint16_t value1; // 2 bytes
+    float value2; // 4 bytes
+    double value3; // 4 bytes
+    char text[11]; // 11 bytes
 };
 
-LkRadioStructure<MyStruct> myStructRadio;
+LkRadioStructure<StructureA> radio;
 
 void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  LkRadioStructure<MyStruct>::globalSetup(RADIO_SPEED, TRANSMIT_PIN, RECEIVE_PIN);
+    pinMode(LED_PIN, OUTPUT);
+    Serial.begin(115200);
+    while (!Serial) {
+        ; // aspetta la connessione del porto seriale
+    }
+    Serial.println("setup");
 
-  Serial.begin(115200);
-  while (!Serial) {
-    ; // aspetta la connessione del porto seriale
-  }
-  Serial.println("setup");
+    radio.globalSetup(2000, -1, RECEIVE_PIN);  // Solo ricezione
 }
 
 void loop() {
-  if (myStructRadio.have_structure()) {
-    digitalWrite(LED_PIN, HIGH);
-    processReceivedStructure();
-    digitalWrite(LED_PIN, LOW);
-  }
-}
+    if (radio.haveRawMessage()) {
+        uint8_t rawBuffer[VW_MAX_MESSAGE_LEN];
+        uint8_t rawBufferLen;
+        radio.getRawBuffer(rawBuffer, rawBufferLen);
 
-void processReceivedStructure() {
-  MyStruct receivedData = myStructRadio.getStructure();
-  printMyStruct(receivedData);
-}
+        Serial.print("Raw buffer length: ");
+        Serial.println(rawBufferLen);
+        Serial.print("Raw buffer: ");
+        for (uint8_t i = 0; i < rawBufferLen; i++) {
+            Serial.print(rawBuffer[i], HEX);
+            Serial.print(" ");
+        }
+        Serial.println();
 
-void printMyStruct(const MyStruct &data) {
-  Serial.println("Ricevuti: ");
-  Serial.print("Mittente: "); Serial.println(data.mittente);
-  Serial.print("Timestamp: "); Serial.println(data.timestamp);
+        // Deserializza il messaggio nel tipo corretto di struttura
+        LkArraylize<StructureA> converter;
+        StructureA receivedData = converter.deArraylize(rawBuffer);
+
+        Serial.println();
+
+        Serial.println("Received data:");
+        Serial.print("sender: ");
+        Serial.println(receivedData.sender);
+        Serial.print("value1: ");
+        Serial.println(receivedData.value1);
+        Serial.print("value2: ");
+        Serial.println(receivedData.value2, 10);  // Print with 10 decimal places
+        Serial.print("value3: ");
+        Serial.println(receivedData.value3, 10);  // Print with 10 decimal places
+        Serial.print("text: ");
+        Serial.println(receivedData.text);
+    }
 }

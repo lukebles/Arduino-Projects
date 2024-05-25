@@ -268,7 +268,7 @@ void radioMessage2arduino(){
             // determinazione della potenza attiva istantanea
             float potenzaAttiva = 3600.0 / float(delta_tempo_sec) * float(delta_energia_wh);
             // verifica se c'è pericolo di distacco energia
-            if (potenzaAttiva > 3800.0){ // fino a 4000 siamo abbastanza sicuri che non scatti
+            if (potenzaAttiva > 3990.0){ // fino a 4000 siamo abbastanza sicuri che non scatti
               //
               // https://www.e-distribuzione.it/open-meter/come-leggere-contatore-luce.html
               // "Il contatore consente, per un tempo illimitato, la disponibilità di una potenza 

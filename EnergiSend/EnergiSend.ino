@@ -50,30 +50,32 @@
 //      |--------------|                           |             |
 //                                                 |-------------|
 
+
+// 25 Maggio 2024
+// miglioramento della leggibilità del codice e rimozione ridindanze
+
 // ==========================
 // libraries
 // ==========================
-
-#include <avr/wdt.h>      // for interrupts (internal watchdog and external)
-#include <avr/sleep.h>    // for interrupts (internal watchdog and external)
-#include <util/atomic.h>  // for interrupts (internal watchdog and external)
+#include <avr/wdt.h>      // per gli interrupt (watchdog interno ed esterno)
+#include <avr/sleep.h>    // per gli interrupt (watchdog interno ed esterno)
+#include <util/atomic.h>  // per gli interrupt (watchdog interno ed esterno)
 
 #include <LkRadioStructure.h>
 
 // ==========================
-// pins
+// Pin
 // ==========================
 
-const int transmit_pin  = 12;
-const int receive_pin = 99; // inutilizzato
-const int ptt_pin       = 13;
-const int ptt_inverted = false;
+const int transmit_pin = 12;
+const int ptt_pin = 13;
+const bool ptt_inverted = false;
 const int speed = 2000;
 
-// sender e destinatario
-#define MYSELF 1     // 
+// Sender e destinatario
+#define MYSELF 1
 
-struct txData1{
+struct txData1 {
   uint8_t sender;
   uint16_t countActiveWh;
   uint16_t countReactiveWh;
@@ -82,48 +84,44 @@ struct txData1{
 LkRadioStructure<txData1> txData1_o;
 
 // ==========================
-// 'volatile' variables
+// Variabili 'volatile'
 // ==========================
 
-volatile boolean interrupt_0 = false;             // external interrupt flag
-volatile boolean interrupt_1 = false;             // external interrupt flag
-volatile boolean interrupt_watchdog = false;      // watchdog timer interrupt flag
-volatile uint16_t pulsesPowerActive = 65530;      // initial number of pulses for Active Power
-volatile uint16_t pulsesPowerReactive = 64000;    // initial number of pulses for Reactive Power
+volatile boolean interrupt_0 = false;             // flag per interrupt esterno
+volatile boolean interrupt_1 = false;             // flag per interrupt esterno
+volatile boolean interrupt_watchdog = false;      // flag per interrupt watchdog
+volatile uint16_t pulsesPowerActive = 65530;      // numero iniziale di impulsi per Potenza Attiva
+volatile uint16_t pulsesPowerReactive = 64000;    // numero iniziale di impulsi per Potenza Reattiva
 
 // ====================
-// setup
+// Setup
 // ====================
 void setup() {
-  // all pins resetted to OUTPUT with LOW state
-  for (int i = 0; i < 20; i++){
+  // Imposta tutti i pin come INPUT_PULLUP
+  for (int i = 0; i < 20; i++) {
     pinMode(i, INPUT_PULLUP);
   }
 
-  txData1_o.globalSetup(speed, transmit_pin, receive_pin, ptt_pin, ptt_inverted);
+  txData1_o.globalSetup(speed, transmit_pin, -1, ptt_pin, ptt_inverted); // solo trasmissione
 
-  // Watchdog & external interrupt
+  // Configurazione Watchdog e interrupt esterno
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     wdt_reset();
-    MCUSR &= ~_BV(WDRF);                            //clear WDRF bit in register MCUSR
-    WDTCSR |= _BV(WDCE) | _BV(WDE);                 //enable WDTCSR change
-    WDTCSR =  _BV(WDIE) | _BV(WDP3) | _BV(WDP0);    //~8 sec
+    MCUSR &= ~_BV(WDRF);                            // cancella il bit WDRF nel registro MCUSR
+    WDTCSR |= _BV(WDCE) | _BV(WDE);                 // abilita il cambiamento di WDTCSR
+    WDTCSR = _BV(WDIE) | _BV(WDP3) | _BV(WDP0);     // ~8 sec
   }
-  
 }
 
 // ====================
-// loop
+// Loop
 // ====================
 void loop(void) {
-
-  // sleeps the ATMEGA328P
-
+  // Mette ATMEGA328P in sleep
   gotoSleep();
 
-  // When it wakes up
-  // Check if it was woken up
-  // by the external interrupt (LED flashes)
+  // Al risveglio
+  // Controlla se il risveglio è dovuto a un interrupt esterno (LED lampeggia)
 
   if (interrupt_0) {
     interrupt_0 = false;
@@ -135,51 +133,51 @@ void loop(void) {
     pulsesPowerReactive++;
   }
 
-  // If it was woken up by the watchdog, it transmits the values
+  // Se il risveglio è dovuto al watchdog, trasmette i valori
   if (interrupt_watchdog) {
     interrupt_watchdog = false;
-    // message composition
+    // Composizione del messaggio
     txData1 sendvalue;
     sendvalue.sender = MYSELF;
     sendvalue.countActiveWh = pulsesPowerActive;
     sendvalue.countReactiveWh = pulsesPowerReactive;
 
     txData1_o.sendStructure(sendvalue);
-    
   }
 }
 
 void gotoSleep(void) {
-  byte adcsra = ADCSRA;          // save the ADC Control and Status Register A
-  ADCSRA = 0;                    // disable the ADC
+  uint8_t adcsra = ADCSRA;       // salva il registro ADC Control and Status Register A
+  ADCSRA = 0;                    // disabilita l'ADC
 
-  EICRA = B00001010;             // configure INT0/INT1 to trigger on falling edge
-  EIFR =  B00000011;             // ensure interrupt flag cleared
-  EIMSK = B00000011;             // enable INT0/INT1
+  EICRA = B00001010;             // configura INT0/INT1 per attivarsi sul fronte di discesa
+  EIFR =  B00000011;             // assicura che il flag di interrupt sia pulito
+  EIMSK = B00000011;             // abilita INT0/INT1
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   ATOMIC_BLOCK(ATOMIC_FORCEON) {
     sleep_enable();
-    sleep_bod_disable();         // disable brown-out detection (saves 20-25µA)
+    sleep_bod_disable();         // disabilita il brown-out detection (risparmia 20-25µA)
   }
-  sleep_cpu();                   // go to sleep
-  sleep_disable();               // wake up here
-  ADCSRA = adcsra;               // restore ADCSRA
+  sleep_cpu();                   // mette il processore in sleep
+  sleep_disable();               // risveglio qui
+  ADCSRA = adcsra;               // ripristina ADCSRA
 }
 
-//external interrupt 0 wakes the MCU
+// Interrupt esterno 0 risveglia il MCU
 ISR(INT0_vect) {
-  EIMSK = 0;                     //disable external interrupts (only need one to wake up)
+  EIMSK = 0;                     // disabilita interrupt esterni (serve solo uno per risvegliare)
   interrupt_0 = true;
 }
 
-//external interrupt 1 wakes the MCU
+// Interrupt esterno 1 risveglia il MCU
 ISR(INT1_vect) {
-  EIMSK = 0;                     //disable external interrupts (only need one to wake up)
+  EIMSK = 0;                     // disabilita interrupt esterni (serve solo uno per risvegliare)
   interrupt_1 = true;
 }
 
-//handles the Watchdog Time-out Interrupt
+// Gestisce il Watchdog Time-out Interrupt
 ISR(WDT_vect) {
   interrupt_watchdog = true;
 }
+
