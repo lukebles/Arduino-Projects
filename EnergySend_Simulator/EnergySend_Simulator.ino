@@ -4,64 +4,69 @@
 // Pin
 // ==========================
 
-const int TRANSMIT_PIN = 12;
+const int TX_PIN = 12;
 const int PTT_PIN = 13;
-const bool PTT_INVERTED = false;
-const int RADIO_SPEED = 2000;
+const bool PTT_INV = false;
+const int RADIO_BAUD = 2000;
 
 // Identificatore del dispositivo
-#define DEVICE_ID 1
+#define SENDER_ENERGY 1
+#define SENDER_LIGHT 2
 
-struct EnergyData {
-  uint8_t senderID;
-  uint16_t activeEnergyCount;
-  uint16_t reactiveEnergyCount;
+struct __attribute__((packed)) EnergyData {
+    byte sender; // 1 byte
+    uint16_t activeCount; // 2 bytes
+    uint16_t reactiveCount; // 2 bytes
 };
 
-LkRadioStructure<EnergyData> radioModule;
+struct __attribute__((packed)) LightData {
+    byte sender; // 1 byte
+    uint16_t intensity; // 2 bytes
+};
+
+LkRadioStructure<EnergyData> radioEnergy; // Radio configurazione per energia
+LkRadioStructure<LightData> radioLight; // Radio configurazione per luce
 
 // ==========================
 // Variabili
 // ==========================
 
-uint16_t activeEnergyPulses = 65530;     // Conteggi iniziali di energia attiva
-uint16_t reactiveEnergyPulses = 64000;   // Conteggi iniziali di energia reattiva
+uint16_t activePulses = 65530; // Conteggi iniziali di energia attiva
+uint16_t reactivePulses = 64000; // Conteggi iniziali di energia reattiva
 
 // ====================
 // Setup
 // ====================
 void setup() {
-  // Imposta tutti i pin come INPUT_PULLUP
-  for (int i = 0; i < 20; i++) {
-    pinMode(i, INPUT_PULLUP);
-  }
-
-  radioModule.globalSetup(RADIO_SPEED, TRANSMIT_PIN, -1, PTT_PIN, PTT_INVERTED); // Solo trasmissione
-
-  // Seed per il generatore di numeri casuali
-  randomSeed(analogRead(0));
+  radioEnergy.globalSetup(RADIO_BAUD, TX_PIN, -1); // Solo trasmissione
 }
 
 // ====================
 // Loop
 // ====================
-void loop(void) {
+void loop() {
   // Simula da 0 a 12 conteggi per il contatore di energia attiva
-  uint8_t simulatedActiveCounts = random(0, 13);
-  activeEnergyPulses += simulatedActiveCounts;
+  uint8_t simulatedActive = random(0, 13);
+  activePulses += simulatedActive;
 
   // Simula da 0 a 3 conteggi per il contatore di energia reattiva
-  uint8_t simulatedReactiveCounts = random(0, 4);
-  reactiveEnergyPulses += simulatedReactiveCounts;
+  uint8_t simulatedReactive = random(0, 4);
+  reactivePulses += simulatedReactive;
 
-  // Composizione del messaggio
-  EnergyData energyDataToSend;
-  energyDataToSend.senderID = DEVICE_ID;
-  energyDataToSend.activeEnergyCount = activeEnergyPulses;
-  energyDataToSend.reactiveEnergyCount = reactiveEnergyPulses;
+  // Composizione del messaggio di energia
+  EnergyData energyMsg;
+  energyMsg.sender = SENDER_ENERGY;
+  energyMsg.activeCount = activePulses;
+  energyMsg.reactiveCount = reactivePulses;
+  radioEnergy.sendStructure(energyMsg);
 
-  radioModule.sendStructure(energyDataToSend);
+  delay(4000);
 
-  // Attende 8 secondi
-  delay(8000);
+  // Composizione del messaggio di luce
+  LightData lightMsg;
+  lightMsg.sender = SENDER_LIGHT;
+  lightMsg.intensity = 1234;
+  radioLight.sendStructure(lightMsg);
+
+  delay(12000);
 }
