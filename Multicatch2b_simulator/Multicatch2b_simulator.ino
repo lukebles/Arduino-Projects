@@ -26,8 +26,8 @@ uint16_t simulatore_contA = 64000;
 uint16_t simulatore_contR = 65500;
 
 void simulateEnergyData() {
-    simulatore_contA += random(0,12);
-    simulatore_contR += random(0,4);    
+    simulatore_contA += 10; // random(0,12);
+    simulatore_contR += 5; //random(0,4);    
 
     unsigned long currentTime = millis();
     if (prevTime != 0) { // Evita il primo calcolo
@@ -50,7 +50,7 @@ void simulateEnergyData() {
 }
 
 void simulateLightData() {
-    intensitaLuminosa = random(0, 1000);
+    intensitaLuminosa += 1; //= random(0, 1000);
 }
 
 void loop() {

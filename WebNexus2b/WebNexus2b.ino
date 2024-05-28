@@ -15,7 +15,6 @@ void setup() {
 void loop() {
   if (Serial.available()) {
     if (Serial.peek() == 0xFF) { // Controlla il byte di sincronizzazione senza consumarlo
-        Serial.println("Trovato byte di sincronizzazione");
         Serial.read(); // Consuma il byte di sincronizzazione
         
         unsigned long startTime = millis();
@@ -28,7 +27,7 @@ void loop() {
         if (Serial.available() >= sizeof(DataPacket)) {
             DataPacket packet;
             Serial.readBytes((uint8_t*)&packet, sizeof(packet));
-
+            Serial.println();
             // Stampa i numeri ricevuti
             Serial.print("Active Diff: ");
             Serial.println(packet.activeDiff);
