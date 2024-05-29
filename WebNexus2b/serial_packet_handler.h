@@ -1,13 +1,11 @@
-#ifndef DATAPACKETHANDLER_H
-#define DATAPACKETHANDLER_H
-
-#include <Arduino.h>
+#ifndef SERIAL_PACKET_HANDLER_H
+#define SERIAL_PACKET_HANDLER_H
 
 struct __attribute__((packed)) DataPacket {
     uint16_t activeDiff;
     uint16_t reactiveDiff;
     unsigned long timeDiff;
-    uint16_t intensitaLuminosa;
+    uint16_t lightIntensity;
 };
 
 bool serialdatapacket_ready() {
@@ -41,4 +39,4 @@ DataPacket read_serialdatapacket() {
     return packet;
 }
 
-#endif // DATAPACKETHANDLER_H
+#endif // SERIAL_PACKET_HANDLER_H

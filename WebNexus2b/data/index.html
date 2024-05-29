@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/skeleton.min.css">
     <title>ESP-01 Data Visualization</title>
     <script src="/Chart.min.js"></script>
     <script>
@@ -58,22 +59,68 @@
         }
     </script>
 </head>
+
+
+
 <body>
-    <canvas id="myChart" width="400" height="200"></canvas>
+    <div class="container">
+        <header>
+            <!-- Include nav.html content -->
+            <nav class="row">
+                <div class="twelve columns">
+                    <ul class="nav-list">
+                        <li><a href="/">Home</a></li>
+                        <li><a href="/page1.html">Pagina 1</a></li>
+                        <li><a href="/page2.html">Pagina 2</a></li>
+                        <li><a href="/page3.html">Pagina 3</a></li>
+                        <li><a href="/page4.html">Pagina 4</a></li>
+                        <li><a href="/page5.html">Pagina 5</a></li>
+                    </ul>
+                </div>
+            </nav>
+            <style>
+                .nav-list {
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                    display: flex;
+                    justify-content: space-around;
+                    background-color: #333;
+                }
+                .nav-list li {
+                    display: inline;
+                }
+                .nav-list li a {
+                    display: block;
+                    color: white;
+                    text-align: center;
+                    padding: 14px 16px;
+                    text-decoration: none;
+                }
+                .nav-list li a:hover {
+                    background-color: #111;
+                }
+            </style>
+        </header>
+        <main>
+            <h1>Consumi elettrici</h1>
+
+
+                <canvas id="myChart" width="400" height="200"></canvas>
     <script>
         var ctx = document.getElementById('myChart').getContext('2d');
         var data = {
             labels: new Array(31).fill(''),
             datasets: [
                 {
-                    label: 'Active Diff',
+                    label: 'Potenza Attiva',
                     backgroundColor: 'rgba(255, 99, 132, 0.2)',
                     borderColor: 'rgba(255, 99, 132, 1)',
                     borderWidth: 1,
                     data: new Array(31).fill(0)
                 },
                 {
-                    label: 'Reactive Diff',
+                    label: 'Potenza Reattiva',
                     backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     borderColor: 'rgba(54, 162, 235, 1)',
                     borderWidth: 1,
@@ -107,6 +154,17 @@
 
         var myChart = new Chart(ctx, config);
 
+        function formatDate(timestamp) {
+            var date = new Date(timestamp * 1000);
+            var day = ('0' + date.getDate()).slice(-2);
+            var month = ('0' + (date.getMonth() + 1)).slice(-2);
+            var year = date.getFullYear();
+            var hours = ('0' + date.getHours()).slice(-2);
+            var minutes = ('0' + date.getMinutes()).slice(-2);
+            var seconds = ('0' + date.getSeconds()).slice(-2);
+            return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+        }
+
         var websocket = new WebSocket('ws://' + location.hostname + ':81/');
 
         websocket.onopen = function() {
@@ -119,24 +177,18 @@
             if (Object.prototype.toString.call(message) === '[object Array]') {
                 for (var i = message.length - 1; i >= 0; i--) {
                     var dataPoint = message[i];
-                    var date = new Date(dataPoint.timestamp * 1000);
-                    var formattedTime = date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds();
+                    var formattedTime = formatDate(dataPoint.timestamp);
                     myChart.data.labels[31 - (message.length - 1 - i) - 1] = formattedTime;
-                    myChart.data.datasets[0].data[31 - (message.length - 1 - i) - 1] = dataPoint.activeDiff;
-                    myChart.data.datasets[1].data[31 - (message.length - 1 - i) - 1] = dataPoint.reactiveDiff;
-                    myChart.data.datasets[2].data[31 - (message.length - 1 - i) - 1] = dataPoint.intensitaLuminosa;
-                    // Puoi utilizzare dataPoint.timeDiff qui se necessario
-                    console.log('TimeDiff:', dataPoint.timeDiff);
+                    myChart.data.datasets[0].data[31 - (message.length - 1 - i) - 1] = dataPoint.activePower;
+                    myChart.data.datasets[1].data[31 - (message.length - 1 - i) - 1] = dataPoint.reactivePower;
+                    myChart.data.datasets[2].data[31 - (message.length - 1 - i) - 1] = dataPoint.lightPower;
                 }
             } else {
-                var date = new Date(message.timestamp * 1000);
-                var formattedTime = date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds();
+                var formattedTime = formatDate(message.timestamp);
                 myChart.data.labels.unshift(formattedTime);
-                myChart.data.datasets[0].data.unshift(message.activeDiff);
-                myChart.data.datasets[1].data.unshift(message.reactiveDiff);
-                myChart.data.datasets[2].data.unshift(message.intensitaLuminosa);
-                // Puoi utilizzare message.timeDiff qui se necessario
-                console.log('TimeDiff:', message.timeDiff);
+                myChart.data.datasets[0].data.unshift(message.activePower);
+                myChart.data.datasets[1].data.unshift(message.reactivePower);
+                myChart.data.datasets[2].data.unshift(message.lightPower);
 
                 if (myChart.data.labels.length > 31) {
                     myChart.data.labels.pop();
@@ -152,5 +204,8 @@
             console.log('WebSocket connection closed');
         };
     </script>
+        </main>
+    </div>
 </body>
 </html>
+
