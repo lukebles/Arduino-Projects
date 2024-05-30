@@ -59,9 +59,6 @@
         }
     </script>
 </head>
-
-
-
 <body>
     <div class="container">
         <header>
@@ -104,23 +101,21 @@
         </header>
         <main>
             <h1>Consumi elettrici</h1>
-
-
-                <canvas id="myChart" width="400" height="200"></canvas>
-    <script>
+            <canvas id="myChart" width="400" height="200"></canvas>
+            <script>
         var ctx = document.getElementById('myChart').getContext('2d');
         var data = {
             labels: new Array(31).fill(''),
             datasets: [
                 {
-                    label: 'Potenza Attiva',
+                    label: 'Active Diff',
                     backgroundColor: 'rgba(255, 99, 132, 0.2)',
                     borderColor: 'rgba(255, 99, 132, 1)',
                     borderWidth: 1,
                     data: new Array(31).fill(0)
                 },
                 {
-                    label: 'Potenza Reattiva',
+                    label: 'Reactive Diff',
                     backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     borderColor: 'rgba(54, 162, 235, 1)',
                     borderWidth: 1,
@@ -154,17 +149,6 @@
 
         var myChart = new Chart(ctx, config);
 
-        function formatDate(timestamp) {
-            var date = new Date(timestamp * 1000);
-            var day = ('0' + date.getDate()).slice(-2);
-            var month = ('0' + (date.getMonth() + 1)).slice(-2);
-            var year = date.getFullYear();
-            var hours = ('0' + date.getHours()).slice(-2);
-            var minutes = ('0' + date.getMinutes()).slice(-2);
-            var seconds = ('0' + date.getSeconds()).slice(-2);
-            return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-        }
-
         var websocket = new WebSocket('ws://' + location.hostname + ':81/');
 
         websocket.onopen = function() {
@@ -177,15 +161,13 @@
             if (Object.prototype.toString.call(message) === '[object Array]') {
                 for (var i = message.length - 1; i >= 0; i--) {
                     var dataPoint = message[i];
-                    var formattedTime = formatDate(dataPoint.timestamp);
-                    myChart.data.labels[31 - (message.length - 1 - i) - 1] = formattedTime;
+                    myChart.data.labels[31 - (message.length - 1 - i) - 1] = dataPoint.timestamp;
                     myChart.data.datasets[0].data[31 - (message.length - 1 - i) - 1] = dataPoint.activePower;
                     myChart.data.datasets[1].data[31 - (message.length - 1 - i) - 1] = dataPoint.reactivePower;
                     myChart.data.datasets[2].data[31 - (message.length - 1 - i) - 1] = dataPoint.lightPower;
                 }
             } else {
-                var formattedTime = formatDate(message.timestamp);
-                myChart.data.labels.unshift(formattedTime);
+                myChart.data.labels.unshift(message.timestamp);
                 myChart.data.datasets[0].data.unshift(message.activePower);
                 myChart.data.datasets[1].data.unshift(message.reactivePower);
                 myChart.data.datasets[2].data.unshift(message.lightPower);
@@ -203,9 +185,8 @@
         websocket.onclose = function() {
             console.log('WebSocket connection closed');
         };
-    </script>
+            </script>
         </main>
     </div>
 </body>
 </html>
-

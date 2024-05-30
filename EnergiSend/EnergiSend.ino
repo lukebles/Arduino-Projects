@@ -3,35 +3,40 @@
 // CC BY-SA, see http://creativecommons.org/licenses/by-sa/3.0/
 /*
 
-  The hardware circuit of this program enables the measurement of active and 
-  reactive power by reading the flashes of the two LEDs on the energy meter.
+Il circuito hardware descritto in questo programma consente la misurazione 
+e la trasmissione via radio dei valori di energia attiva 
+e reattiva leggendo i lampeggi delle due LED sul contatore elettrico.
+Questo circuito è alimentato a batteria, prestando particolare attenzione 
+a minimizzare il consumo energetico. 
 
-  This circuit is battery-powered, paying particular attention to power 
-  consumption. Each pin of the ATMEGA328 is configured as an output, except for 
-  the three required inputs. The circuit is in a constant 'sleep' state, activated
-  with each ENEL meter flash. In addition, the built-in watchdog wakes up the 
-  microcontroller every 8 seconds, allowing periodic sending of meter data via the
-  433 MHz radio module.
+Il circuito include i seguenti componenti:
 
-  The circuit consists of the following:
+2 fotoresistori
+1 modulo radio TX a 433 MHz
+1 ATMEGA328 con bootloader Arduino
 
-  2 photoresistors
-  2 33K/56K resistors
-  1 433 MHz TX radio module
-  1 ATMEGA328 with Arduino bootloader.
+Per maggiori dettagli sulla programmazione di un ATMEGA328P, vedi: 
+Caricare sketch su un ATmega su una breadboard
+https://www.arduino.cc/en/Tutorial/BuiltInExamples/ArduinoToBreadboard
 
-  The microcontroller is programmed by connecting it to an Arduino board (after 
-  removing the microcontroller from the board).
+=====================================================
 
-  see
-  https://www.arduino.cc/en/Tutorial/BuiltInExamples/ArduinoToBreadboard
-  Uploading sketches to an ATmega on a breadboard.
+The hardware circuit described in this program enables the measurement 
+and radio transmission of the values of active 
+and reactive by reading the flashes of the two LEDs on the electric meter.
+This circuit is battery-powered, paying special attention 
+to minimize power consumption. 
 
+The circuit includes the following components:
 
+2 photoresistors
+1 433 MHz TX radio module
+1 ATMEGA328 with Arduino bootloader.
 
-
-  12 Apr 2024 lkENELmodule.ino rinominato in EnergiSend.ino 
-
+For more details on programming an ATMEGA328P, see: 
+Loading sketches to an ATmega on a breadboard
+https://www.arduino.cc/en/Tutorial/BuiltInExamples/ArduinoToBreadboard
+  
 */
 
 //
@@ -50,9 +55,8 @@
 //      |--------------|                           |             |
 //                                                 |-------------|
 
-
-// 25 Maggio 2024
-// miglioramento della leggibilità del codice e rimozione ridindanze
+// 25 Maggio 2024: miglioramento della leggibilità del codice e rimozione ridindanze
+// 12 Apr 2024: lkENELmodule.ino rinominato in EnergiSend.ino 
 
 // ==========================
 // libraries
@@ -63,46 +67,33 @@
 
 #include <LkRadioStructure.h>
 
-// ==========================
-// Pin
-// ==========================
+const int TX_PIN = 12;
+const int PTT_PIN = 13;
+const bool PTT_INVERTED = false;
+const int SPEED = 2000;
 
-const int transmit_pin = 12;
-const int ptt_pin = 13;
-const bool ptt_inverted = false;
-const int speed = 2000;
+#define SENDER_ID 1
 
-// Sender e destinatario
-#define MYSELF 1
-
-struct txData1 {
+struct txData {
   uint8_t sender;
   uint16_t countActiveWh;
   uint16_t countReactiveWh;
 };
 
-LkRadioStructure<txData1> txData1_o;
+LkRadioStructure<txData> radio;
 
-// ==========================
-// Variabili 'volatile'
-// ==========================
+volatile boolean ext_int_0 = false;             // flag per interrupt esterno
+volatile boolean ext_int_1 = false;             // flag per interrupt esterno
+volatile boolean wdt_int = false;               // flag per interrupt watchdog
+volatile uint16_t counter_energyActive = 65530;      // numero iniziale di impulsi per Potenza Attiva
+volatile uint16_t counter_energyReactive = 64000;    // numero iniziale di impulsi per Potenza Reattiva
 
-volatile boolean interrupt_0 = false;             // flag per interrupt esterno
-volatile boolean interrupt_1 = false;             // flag per interrupt esterno
-volatile boolean interrupt_watchdog = false;      // flag per interrupt watchdog
-volatile uint16_t pulsesPowerActive = 65530;      // numero iniziale di impulsi per Potenza Attiva
-volatile uint16_t pulsesPowerReactive = 64000;    // numero iniziale di impulsi per Potenza Reattiva
-
-// ====================
-// Setup
-// ====================
 void setup() {
-  // Imposta tutti i pin come INPUT_PULLUP
   for (int i = 0; i < 20; i++) {
     pinMode(i, INPUT_PULLUP);
   }
 
-  txData1_o.globalSetup(speed, transmit_pin, -1, ptt_pin, ptt_inverted); // solo trasmissione
+  radio.globalSetup(SPEED, TX_PIN, -1, PTT_PIN, PTT_INVERTED); // solo trasmissione
 
   // Configurazione Watchdog e interrupt esterno
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -113,36 +104,32 @@ void setup() {
   }
 }
 
-// ====================
-// Loop
-// ====================
 void loop(void) {
-  // Mette ATMEGA328P in sleep
   gotoSleep();
 
   // Al risveglio
   // Controlla se il risveglio è dovuto a un interrupt esterno (LED lampeggia)
 
-  if (interrupt_0) {
-    interrupt_0 = false;
-    pulsesPowerActive++;
+  if (ext_int_0) {
+    ext_int_0 = false;
+    counter_energyActive++;
   }
 
-  if (interrupt_1) {
-    interrupt_1 = false;
-    pulsesPowerReactive++;
+  if (ext_int_1) {
+    ext_int_1 = false;
+    counter_energyReactive++;
   }
 
   // Se il risveglio è dovuto al watchdog, trasmette i valori
-  if (interrupt_watchdog) {
-    interrupt_watchdog = false;
+  if (wdt_int) {
+    wdt_int = false;
     // Composizione del messaggio
-    txData1 sendvalue;
-    sendvalue.sender = MYSELF;
-    sendvalue.countActiveWh = pulsesPowerActive;
-    sendvalue.countReactiveWh = pulsesPowerReactive;
+    txData sendvalue;
+    sendvalue.sender = SENDER_ID;
+    sendvalue.countActiveWh = counter_energyActive;
+    sendvalue.countReactiveWh = counter_energyReactive;
 
-    txData1_o.sendStructure(sendvalue);
+    radio.sendStructure(sendvalue);
   }
 }
 
@@ -167,17 +154,17 @@ void gotoSleep(void) {
 // Interrupt esterno 0 risveglia il MCU
 ISR(INT0_vect) {
   EIMSK = 0;                     // disabilita interrupt esterni (serve solo uno per risvegliare)
-  interrupt_0 = true;
+  ext_int_0 = true;
 }
 
 // Interrupt esterno 1 risveglia il MCU
 ISR(INT1_vect) {
   EIMSK = 0;                     // disabilita interrupt esterni (serve solo uno per risvegliare)
-  interrupt_1 = true;
+  ext_int_1 = true;
 }
 
 // Gestisce il Watchdog Time-out Interrupt
 ISR(WDT_vect) {
-  interrupt_watchdog = true;
+  wdt_int = true;
 }
 
