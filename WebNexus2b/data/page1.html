@@ -67,7 +67,7 @@
                     ('0' + now.getHours()).slice(-2) + ':' + 
                     ('0' + now.getMinutes()).slice(-2) + ':' + 
                     ('0' + now.getSeconds()).slice(-2);      
-                webSocket.send(dateTimeString); // <<------- PULSANTE BROWSER -> ESP-01
+                webSocket.send("setTime:" + dateTimeString); // <<------- PULSANTE BROWSER -> ESP-01
                 pulsante.textContent = 'Data/Ora Aggiornata';
             });
         }
