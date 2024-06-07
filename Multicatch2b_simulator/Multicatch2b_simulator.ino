@@ -1,3 +1,8 @@
+// =================================
+// simula la ricezione di pacchetti 
+// via radio e li invia via seriale
+// ================================
+
 struct __attribute__((packed)) DataPacket {
     uint16_t activeDiff;
     uint16_t reactiveDiff;
@@ -35,6 +40,8 @@ void simulateEnergyData() {
         uint16_t activeDiff = simulatore_contA - prevActiveCount;
         uint16_t reactiveDiff = simulatore_contR - prevReactiveCount;
 
+        //Serial.println(activeDiff);
+
         DataPacket packet = {activeDiff, reactiveDiff, timeDiff, intensitaLuminosa};
         Serial.write(0xFF); // Byte di sincronizzazione
         Serial.write((uint8_t*)&packet, sizeof(packet));
@@ -49,9 +56,6 @@ void simulateEnergyData() {
     }
 }
 
-void simulateLightData() {
-    intensitaLuminosa += random(0, 7);
-}
 
 void loop() {
     unsigned long currentMillis = millis();
@@ -61,8 +65,4 @@ void loop() {
         simulateEnergyData();
     }
 
-    if (currentMillis - lastLightDataTime >= 3000) {
-        lastLightDataTime = currentMillis;
-        simulateLightData();
-    }
 }

@@ -1,84 +1,90 @@
 // LkHexBytes Library
 
 /*
- * LkHexBytes Library
- * This library provides functionality for handling hexadecimal strings and byte arrays.
- * It includes methods for converting a string of hexadecimal characters to a byte array,
- * and for dumping a byte array to the Serial output in a human-readable format.
- * Specifically designed for use with Arduino environments, this library is useful
- * for projects that require hexadecimal string parsing or display.
- *
- * ======================
- *
- * Questa libreria fornisce funzionalità per la gestione di stringhe esadecimali e array di byte.
- * Include metodi per convertire una stringa di caratteri esadecimali in un array di byte,
- * e per esportare un array di byte sull'output Seriale in un formato leggibile dall'uomo.
- * Specificamente progettata per l'uso con ambienti Arduino, questa libreria è utile
- * per progetti che richiedono l'analisi o la visualizzazione di stringhe esadecimali.
- *
+
+Questo codice fornisce strumenti utili per convertire stringhe 
+esadecimali in array di byte e per la loro visualizzazione, garantendo 
+la validità degli input attraverso controlli rigorosi.
+
+Il codice fornito appartiene al namespace `LkHexBytes` e offre funzionalità per la gestione 
+e la conversione di stringhe esadecimali in array di byte. 
+
+
  */
 
-#ifndef LKHEXBYTES_H
-#define LKHEXBYTES_H
-#include <Arduino.h>
+// 6/6/2024 migliorato codice e sistemati dettagli
 
 namespace LkHexBytes {
 
+// la massima dimensione a livello di stringa è quindi 2 * MaxByteArraySize
 const byte MaxByteArraySize = 30;
 
-// Static function, visible only within this namespace
-static byte nibble(char c) {
+// La funzione privata `nibble(char c)` converte un singolo carattere esadecimale 
+// in un valore numerico a 4 bit, gestendo sia le cifre da '0' a '9' che le lettere 
+// da 'a' a 'f' e da 'A' a 'F'. In caso di carattere non valido, restituisce 0.
+
+byte nibble(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
   if (c >= 'a' && c <= 'f')
     return c - 'a' + 10;
   if (c >= 'A' && c <= 'F')
     return c - 'A' + 10;
-  return 0;  // Not a valid hexadecimal character
+  return 0;  // Carattere non valido esadecimale
 }
 
+// La funzione `dumpByteArray` prende un array di byte e la sua dimensione, 
+// e stampa i valori in formato esadecimale su una seriale, formattati con il prefisso 
+// "0x" e separati da virgole.
+
 void dumpByteArray(const byte * byteArray, const byte arraySize) {
-  for (int i = 0; i < arraySize; i++) {
+  for (byte i = 0; i < arraySize; i++) {
     Serial.print("0x");
     if (byteArray[i] < 0x10) {
       Serial.print("0");
     }
     Serial.print(byteArray[i], HEX);
-    Serial.print(", ");
+    if (i < arraySize - 1) {
+      Serial.print(", ");
+    }
   }
   Serial.println();
 }
 
-void hexCharacterStringToBytes(byte *byteArray, char *hexString) {
+// La funzione `hexCharacterStringToBytes` converte una stringa esadecimale in un 
+// array di byte. Esegue vari controlli di validità sull'input: verifica che 
+// la stringa e l'array di byte non siano nulli, controlla la lunghezza della 
+// stringa e conferma che contenga solo caratteri esadecimali validi. 
+// La conversione avviene leggendo due caratteri alla volta dalla stringa esadecimale 
+// e combinandoli in un singolo byte.
+
+bool hexCharacterStringToBytes(byte *byteArray, const char *hexString) {
   // Validazione dell'input
-  if (hexString == NULL || byteArray == NULL) {
-    // Hexadecimal string or array of NULL bytes
-    return;
+  if (hexString == nullptr || byteArray == nullptr) {
+    // Stringa esadecimale o array di byte è null
+    return false;
   }
 
   int len = strlen(hexString);
   if (len == 0 || len > 2 * MaxByteArraySize || len % 2 != 0) {
-    // Invalid or even hexadecimal string length
-    return;
+    // Lunghezza della stringa esadecimale non valida
+    return false;
   }
 
   for (int i = 0; i < len; i++) {
     if (!isxdigit(hexString[i])) {
-      // Non-hexadecimal character found in the string
-      return;
+      // Carattere non esadecimale trovato nella stringa
+      return false;
     }
   }
 
-  byte currentByte = 0;
-  byte byteIndex = 0;
-
-  for (byte charIndex = 0; charIndex < len; charIndex += 2) {
-    currentByte = nibble(hexString[charIndex]) << 4;
-    currentByte |= nibble(hexString[charIndex + 1]);
-    byteArray[byteIndex++] = currentByte;
+  for (byte charIndex = 0, byteIndex = 0; charIndex < len; charIndex += 2) {
+    byteArray[byteIndex++] = (nibble(hexString[charIndex]) << 4) | nibble(hexString[charIndex + 1]);
   }
+
+  return true;
 }
 
 } // namespace LkHexBytes
 
-#endif
+

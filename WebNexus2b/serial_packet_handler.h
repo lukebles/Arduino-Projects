@@ -5,7 +5,6 @@ struct __attribute__((packed)) DataPacket {
     uint16_t activeDiff;
     uint16_t reactiveDiff;
     unsigned long timeDiff;
-    uint16_t lightIntensity;
 };
 
 bool serialdatapacket_ready() {

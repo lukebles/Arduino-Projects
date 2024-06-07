@@ -3,60 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP-01 Data Visualization</title>
-    <script src="/Chart.min.js"></script>
-    <script>
-        // Polyfill per Array.prototype.fill
-        if (!Array.prototype.fill) {
-            Object.defineProperty(Array.prototype, 'fill', {
-                value: function(value) {
-                    if (this == null) {
-                        throw new TypeError('this is null or not defined');
-                    }
-                    var O = Object(this);
-                    var len = O.length >>> 0;
-                    var start = arguments[1];
-                    var relativeStart = start >> 0;
-                    var k = relativeStart < 0 ? Math.max(len + relativeStart, 0) : Math.min(relativeStart, len);
-                    var end = arguments[2];
-                    var relativeEnd = end === undefined ? len : end >> 0;
-                    var final = relativeEnd < 0 ? Math.max(len + relativeEnd, 0) : Math.min(relativeEnd, len);
-                    while (k < final) {
-                        O[k] = value;
-                        k++;
-                    }
-                    return O;
-                }
-            });
-        }
-
-        // Polyfill per Array.prototype.forEach
-        if (!Array.prototype.forEach) {
-            Array.prototype.forEach = function(callback, thisArg) {
-                var T, k;
+    <title>Consumi Elettrici Istantanei</title>
+<script src="/Chart.min.js"></script>
+<script>
+    // Polyfill per Array.prototype.fill
+    if (!Array.prototype.fill) {
+        Object.defineProperty(Array.prototype, 'fill', {
+            value: function(value) {
                 if (this == null) {
                     throw new TypeError('this is null or not defined');
                 }
                 var O = Object(this);
                 var len = O.length >>> 0;
-                if (typeof callback !== 'function') {
-                    throw new TypeError(callback + ' is not a function');
-                }
-                if (arguments.length > 1) {
-                    T = thisArg;
-                }
-                k = 0;
-                while (k < len) {
-                    var kValue;
-                    if (k in O) {
-                        kValue = O[k];
-                        callback.call(T, kValue, k, O);
-                    }
+                var start = arguments[1];
+                var relativeStart = start >> 0;
+                var k = relativeStart < 0 ? Math.max(len + relativeStart, 0) : Math.min(relativeStart, len);
+                var end = arguments[2];
+                var relativeEnd = end === undefined ? len : end >> 0;
+                var final = relativeEnd < 0 ? Math.max(len + relativeEnd, 0) : Math.min(relativeEnd, len);
+                while (k < final) {
+                    O[k] = value;
                     k++;
                 }
-            };
+                return O;
+            }
+        });
+    }
+
+    // Polyfill per Array.prototype.forEach
+    if (!Array.prototype.forEach) {
+        Array.prototype.forEach = function(callback, thisArg) {
+            var T, k;
+            if (this == null) {
+                throw new TypeError('this is null or not defined');
+            }
+            var O = Object(this);
+            var len = O.length >>> 0;
+            if (typeof callback !== 'function') {
+                throw new TypeError(callback + ' is not a function');
+            }
+            if (arguments.length > 1) {
+                T = thisArg;
+            }
+            k = 0;
+            while (k < len) {
+                var kValue;
+                if (k in O) {
+                    kValue = O[k];
+                    callback.call(T, kValue, k, O);
+                }
+                k++;
+            }
+        };
+    }
+
+function calculateAverage(data) {
+    var sum = 0;
+    for (var i = 0; i < data.length; i++) {
+        sum += data[i];
+    }
+    return sum / data.length;
+}
+
+function drawAverageLines(chart, averages, totalAverage) {
+    var ctx = chart.chart.ctx;
+    var chartArea = chart.chartArea;
+    var yScale = chart.scales['y-axis-0'];
+
+    // Disegna linee di media per ogni dataset
+    for (var i = 0; i < averages.length; i++) {
+        var yValue = yScale.getPixelForValue(averages[i]);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, yValue);
+        ctx.lineTo(chartArea.right, yValue);
+        ctx.strokeStyle = chart.data.datasets[i].borderColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Disegna la linea di media totale
+    var yTotalValue = yScale.getPixelForValue(totalAverage);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, yTotalValue);
+    ctx.lineTo(chartArea.right, yTotalValue);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';  // Colore per la media totale
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);  // Linea tratteggiata per la media totale
+    ctx.stroke();
+    ctx.restore();
+}
+
+Chart.plugins.register({
+    afterDraw: function(chart) {
+        var averages = [];
+        for (var i = 0; i < chart.data.datasets.length; i++) {
+            averages.push(calculateAverage(chart.data.datasets[i].data));
         }
-    </script>
+
+        // Calcola la media totale della somma dei valori delle colonne
+        var totalSumData = [];
+        for (var j = 0; j < chart.data.labels.length; j++) {
+            var totalSum = 0;
+            for (var k = 0; k < chart.data.datasets.length; k++) {
+                totalSum += chart.data.datasets[k].data[j];
+            }
+            totalSumData.push(totalSum);
+        }
+        var totalAverage = calculateAverage(totalSumData);
+
+        drawAverageLines(chart, averages, totalAverage);
+    }
+});
+
+</script>
 </head>
 <body>
     <div class="container">
@@ -65,12 +128,12 @@
             <nav class="row">
                 <div class="twelve columns">
                     <ul class="nav-list">
-                        <li><a href="/">Home</a></li>
-                        <li><a href="/page1.html">Pagina 1</a></li>
-                        <li><a href="/page2.html">Pagina 2</a></li>
-                        <li><a href="/page3.html">Pagina 3</a></li>
-                        <li><a href="/page4.html">Pagina 4</a></li>
-                        <li><a href="/page5.html">Pagina 5</a></li>
+                        <li><a href="/">Istan</a></li>
+                        <li><a href="/page1.html">Orari</a></li>
+                        <li><a href="/page2.html">Giorn</a></li>
+                        <li><a href="/page3.html">--</a></li>
+                        <li><a href="/page4.html">--</a></li>
+                        <li><a href="/page5.html">Impos</a></li>
                     </ul>
                 </div>
             </nav>
@@ -99,121 +162,89 @@
             </style>
         </header>
         <main>
-            <h1>Consumi elettrici</h1>
+            <h1>Consumi Elettrici Istantanei - Watt (W)</h1>
+            <div id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></div>
             <canvas id="myChart" width="400" height="200"></canvas>
             <script>
-        var ctx = document.getElementById('myChart').getContext('2d');
-        var data = {
-            labels: new Array(31).fill(''),
-            datasets: [
-                {
-                    label: 'Potenza Attiva',
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 1,
-                    data: new Array(31).fill(0)
-                },
-                {
-                    label: 'Potenza Reattiva',
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1,
-                    data: new Array(31).fill(0)
-                },
-                {
-                    label: 'Intensita Luminosa',
-                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 1,
-                    data: new Array(31).fill(0)
+            var ctx = document.getElementById('myChart').getContext('2d');
+            var data = {
+                labels: new Array(31).fill(''),
+                datasets: [
+                    {
+                        label: 'Potenza Attiva',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1,
+                        data: new Array(31).fill(0)
+                    },
+                    {
+                        label: 'Potenza Reattiva',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1,
+                        data: new Array(31).fill(0)
+                    },
+                ]
+            };
+
+            var config = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    scales: {
+                        xAxes: [{
+                            stacked: true
+                        }],
+                        yAxes: [{
+                            stacked: true
+                        }]
+                    }
                 }
-            ]
-        };
+            };
 
-        var config = {
-            type: 'bar',
-            data: data,
-            options: {
-                responsive: true,
-                scales: {
-                    xAxes: [{
-                        stacked: true
-                    }],
-                    yAxes: [{
-                        stacked: true
-                    }]
+            var myChart = new Chart(ctx, config);
+
+            var websocket = new WebSocket('ws://' + location.hostname + ':81/');
+
+            websocket.onopen = function() {
+                console.log('WebSocket connection established');
+                websocket.send('getPowerData');
+            };
+
+            websocket.onmessage = function(event) {
+                var message = JSON.parse(event.data);
+
+                if (Object.prototype.toString.call(message) === '[object Array]') {
+                    for (var i = 0; i < message.length; i++) {
+                        var dataPoint = message[i];
+                        myChart.data.labels[i] = dataPoint.timestamp + " (" + dataPoint.timeDiff + "ms)";
+                        myChart.data.datasets[0].data[i] = dataPoint.activePower;
+                        myChart.data.datasets[1].data[i] = dataPoint.reactivePower;
+                    }
+                } else {
+                    myChart.data.labels.push(message.timestamp + " (" + message.timeDiff + "ms)");
+                    myChart.data.datasets[0].data.push(message.activePower);
+                    myChart.data.datasets[1].data.push(message.reactivePower);
+
+                    // last RX RADIO
+                    var lastRadio = document.getElementById('lastRadio');
+                    lastRadio.innerText = message.timestampLong;
+
+                    if (myChart.data.datasets[0].data.length > 31) {
+                        myChart.data.labels.shift();
+                        for (var j = 0; j < myChart.data.datasets.length; j++) {
+                            myChart.data.datasets[j].data.shift();
+                        }
+                    }
                 }
-            }
-        };
 
-        var myChart = new Chart(ctx, config);
+                myChart.update();
+            };
 
-        var websocket = new WebSocket('ws://' + location.hostname + ':81/');
-
-        websocket.onopen = function() {
-            console.log('WebSocket connection established');
-            websocket.send('getPowerData');
-        };
-
-        websocket.onmessage = function(event) {
-            var message = JSON.parse(event.data);
-
-
-if (Object.prototype.toString.call(message) === '[object Array]') {
-        for (var i = 0; i < message.length; i++) {
-            var dataPoint = message[i];
-            myChart.data.labels[i] = dataPoint.timestamp;
-            myChart.data.datasets[0].data[i] = dataPoint.activePower;
-            myChart.data.datasets[1].data[i] = dataPoint.reactivePower;
-            myChart.data.datasets[2].data[i] = dataPoint.lightPower;
-        }
-    } else {
-        myChart.data.labels.push(message.timestamp);
-        myChart.data.datasets[0].data.push(message.activePower);
-        myChart.data.datasets[1].data.push(message.reactivePower);
-        myChart.data.datasets[2].data.push(message.lightPower);
-
-        if (myChart.data.datasets[0].data.length > 31) {
-            myChart.data.labels.shift();
-            for (var j = 0; j < myChart.data.datasets.length; j++) {
-                myChart.data.datasets[j].data.shift();
-            }
-        }
-    }
-
-
-
-
-            // if (Object.prototype.toString.call(message) === '[object Array]') {
-            //     var k = 0;
-            //     for (var i = 0; i < message.length; i++) {
-            //         var dataPoint = message[i];
-            //         k = message.length - i - 1;
-            //         myChart.data.labels[k] = dataPoint.timestamp;
-            //         myChart.data.datasets[0].data[k] = dataPoint.activePower;
-            //         myChart.data.datasets[1].data[k] = dataPoint.reactivePower;
-            //         myChart.data.datasets[2].data[k] = dataPoint.lightPower;
-            //     }
-            // } else {
-            //     myChart.data.labels.unshift(message.timestamp);
-            //     myChart.data.datasets[0].data.unshift(message.activePower);
-            //     myChart.data.datasets[1].data.unshift(message.reactivePower);
-            //     myChart.data.datasets[2].data.unshift(message.lightPower);
-
-            //     if (myChart.data.labels.length > 31) {
-            //         myChart.data.labels.pop();
-            //         myChart.data.datasets.forEach(function(dataset) {
-            //             dataset.data.pop();
-            //         });
-            //     }
-            // }
-
-            myChart.update();
-        };
-
-        websocket.onclose = function() {
-            console.log('WebSocket connection closed');
-        };
+            websocket.onclose = function() {
+                console.log('WebSocket connection closed');
+            };
             </script>
         </main>
     </div>

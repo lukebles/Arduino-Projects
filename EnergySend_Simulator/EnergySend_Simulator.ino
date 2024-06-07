@@ -11,7 +11,6 @@ const int RADIO_BAUD = 2000;
 
 // Identificatore del dispositivo
 #define SENDER_ENERGY 1
-#define SENDER_LIGHT 2
 
 struct __attribute__((packed)) EnergyData {
     byte sender; // 1 byte
@@ -19,13 +18,8 @@ struct __attribute__((packed)) EnergyData {
     uint16_t reactiveCount; // 2 bytes
 };
 
-struct __attribute__((packed)) LightData {
-    byte sender; // 1 byte
-    uint16_t intensity; // 2 bytes
-};
 
 LkRadioStructure<EnergyData> radioEnergy; // Radio configurazione per energia
-LkRadioStructure<LightData> radioLight; // Radio configurazione per luce
 
 // ==========================
 // Variabili
@@ -60,13 +54,6 @@ void loop() {
   energyMsg.reactiveCount = reactivePulses;
   radioEnergy.sendStructure(energyMsg);
 
-  delay(4000);
+  delay(1000);
 
-  // Composizione del messaggio di luce
-  LightData lightMsg;
-  lightMsg.sender = SENDER_LIGHT;
-  lightMsg.intensity = 1234;
-  radioLight.sendStructure(lightMsg);
-
-  delay(12000);
 }

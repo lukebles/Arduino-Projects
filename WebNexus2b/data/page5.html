@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/skeleton.min.css">
-    <title>Pagina 5</title>
+   
+    <title>Set Date and Time</title>
 </head>
 <body>
     <div class="container">
@@ -13,12 +14,12 @@
             <nav class="row">
                 <div class="twelve columns">
                     <ul class="nav-list">
-                        <li><a href="/">Home</a></li>
-                        <li><a href="/page1.html">Pagina 1</a></li>
-                        <li><a href="/page2.html">Pagina 2</a></li>
-                        <li><a href="/page3.html">Pagina 3</a></li>
-                        <li><a href="/page4.html">Pagina 4</a></li>
-                        <li><a href="/page5.html">Pagina 5</a></li>
+                        <li><a href="/">Istan</a></li>
+                        <li><a href="/page1.html">Orari</a></li>
+                        <li><a href="/page2.html">Giorn</a></li>
+                        <li><a href="/page3.html">--</a></li>
+                        <li><a href="/page4.html">--</a></li>
+                        <li><a href="/page5.html">Impos</a></li>
                     </ul>
                 </div>
             </nav>
@@ -47,9 +48,62 @@
             </style>
         </header>
         <main>
-            <h1>Pagina 5</h1>
-            <p>Contenuto della pagina 5.</p>
+
+            <h1>Set Date and Time</h1>
+          <div id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></div>
+<button id="setTimeButton">Imposta la data e l'ora di ESP01</button>
+
+<script>
+// Creazione del WebSocket
+var websocket = new WebSocket('ws://' + location.hostname + ':81/');
+
+// Gestione dell'evento onopen
+websocket.onopen = function() {
+    console.log('WebSocket connection established');
+    websocket.send('getPowerData');
+};
+
+// Gestione dell'evento onmessage
+websocket.onmessage = function(event) {
+    var message = JSON.parse(event.data);
+
+    if (Array.isArray(message)) {
+        // Aggiungi il codice per gestire l'array se necessario
+    } else {
+        // Aggiornamento del timestamp
+        var lastRadio = document.getElementById('lastRadio');
+        lastRadio.innerText = message.timestampLong;
+    }
+};
+
+// Gestione dell'evento onclose
+websocket.onclose = function() {
+    console.log('WebSocket connection closed');
+};
+
+// Funzione per inserire un pulsante e aggiungere l'eventListener
+function inserisciPulsante() {
+    var pulsante = document.getElementById('setTimeButton');
+    pulsante.addEventListener('click', function() {
+        var now = new Date();
+        var dateTimeString = now.getFullYear() + '-' + 
+            ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
+            ('0' + now.getDate()).slice(-2) + ' ' + 
+            ('0' + now.getHours()).slice(-2) + ':' + 
+            ('0' + now.getMinutes()).slice(-2) + ':' + 
+            ('0' + now.getSeconds()).slice(-2);      
+        websocket.send("setTime:" + dateTimeString); // Corretto l'errore di variabile
+        pulsante.textContent = 'Data/Ora Aggiornata';
+    });
+}
+
+// Inserimento pulsante
+inserisciPulsante();
+
+    </script>
+
         </main>
     </div>
 </body>
 </html>
+

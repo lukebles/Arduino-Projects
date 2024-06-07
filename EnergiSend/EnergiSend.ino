@@ -55,7 +55,8 @@ https://www.arduino.cc/en/Tutorial/BuiltInExamples/ArduinoToBreadboard
 //      |--------------|                           |             |
 //                                                 |-------------|
 
-// 25 Maggio 2024: miglioramento della leggibilità del codice e rimozione ridindanze
+// 5/6/2024: piccole modifiche
+// 25 Maggio 2024: miglioramento della leggibilità del codice e rimozione ridondanze
 // 12 Apr 2024: lkENELmodule.ino rinominato in EnergiSend.ino 
 
 // ==========================
@@ -69,31 +70,32 @@ https://www.arduino.cc/en/Tutorial/BuiltInExamples/ArduinoToBreadboard
 
 const int TX_PIN = 12;
 const int PTT_PIN = 13;
-const bool PTT_INVERTED = false;
+const bool PTT_INV = false;
 const int SPEED = 2000;
 
-#define SENDER_ID 1
+#define SENDER_ENERGY 1
 
-struct txData {
-  uint8_t sender;
-  uint16_t countActiveWh;
-  uint16_t countReactiveWh;
+struct __attribute__((packed)) EnergyData {
+    byte sender; // 1 byte
+    uint16_t activeCount; // 2 bytes
+    uint16_t reactiveCount; // 2 bytes
 };
 
-LkRadioStructure<txData> radio;
+LkRadioStructure<EnergyData> radioEnergy;
 
 volatile boolean ext_int_0 = false;             // flag per interrupt esterno
 volatile boolean ext_int_1 = false;             // flag per interrupt esterno
 volatile boolean wdt_int = false;               // flag per interrupt watchdog
-volatile uint16_t counter_energyActive = 65530;      // numero iniziale di impulsi per Potenza Attiva
-volatile uint16_t counter_energyReactive = 64000;    // numero iniziale di impulsi per Potenza Reattiva
+
+volatile uint16_t activePulses = 65530;      // numero iniziale di impulsi per Potenza Attiva
+volatile uint16_t reactivePulses = 64000;    // numero iniziale di impulsi per Potenza Reattiva
 
 void setup() {
   for (int i = 0; i < 20; i++) {
     pinMode(i, INPUT_PULLUP);
   }
 
-  radio.globalSetup(SPEED, TX_PIN, -1, PTT_PIN, PTT_INVERTED); // solo trasmissione
+  radioEnergy.globalSetup(SPEED, TX_PIN, -1, PTT_PIN, PTT_INV); // solo trasmissione
 
   // Configurazione Watchdog e interrupt esterno
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -112,24 +114,23 @@ void loop(void) {
 
   if (ext_int_0) {
     ext_int_0 = false;
-    counter_energyActive++;
+    activePulses++;
   }
 
   if (ext_int_1) {
     ext_int_1 = false;
-    counter_energyReactive++;
+    reactivePulses++;
   }
 
   // Se il risveglio è dovuto al watchdog, trasmette i valori
   if (wdt_int) {
     wdt_int = false;
     // Composizione del messaggio
-    txData sendvalue;
-    sendvalue.sender = SENDER_ID;
-    sendvalue.countActiveWh = counter_energyActive;
-    sendvalue.countReactiveWh = counter_energyReactive;
-
-    radio.sendStructure(sendvalue);
+    EnergyData energyMsg;
+    energyMsg.sender = SENDER_ENERGY;
+    energyMsg.activeCount = activePulses;
+    energyMsg.reactiveCount = reactivePulses;
+    radioEnergy.sendStructure(energyMsg);
   }
 }
 
