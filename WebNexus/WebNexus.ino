@@ -7,7 +7,7 @@
 #include "time_management.h"
 #include "serial_packet_handler.h"
 
-#define SAVE_INTERVAL 5000 // 28800000 // 8 ore in millisecondi
+#define SAVE_INTERVAL 28800000 // 8 ore in millisecondi
 unsigned long lastSaveTime = 0;
 
 AsyncWebServer server(80);
@@ -95,6 +95,7 @@ void loop() {
     }    
 
     if (serialdatapacket_ready()) {
+        digitalWrite(LED_BUILTIN,HIGH);
         // riceve il pacchetto
         DataPacket packet = read_serialdatapacket();
         // === riempie i dati orari ===
@@ -106,5 +107,6 @@ void loop() {
         fillTable_istant(packet.activeDiff,packet.reactiveDiff, packet.timeDiff);
         //
         notifyClients();
+        digitalWrite(LED_BUILTIN,LOW);
     }
 }
