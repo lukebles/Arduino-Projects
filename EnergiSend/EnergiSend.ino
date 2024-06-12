@@ -73,7 +73,7 @@ const int PTT_PIN = 13;
 const bool PTT_INV = false;
 const int SPEED = 2000;
 
-#define SENDER_ENERGY 1
+#define SENDER_ENERGY 1 // CAMBIARE A SECONDA DEL DISPOSITIVO
 
 struct __attribute__((packed)) EnergyData {
     byte sender; // 1 byte

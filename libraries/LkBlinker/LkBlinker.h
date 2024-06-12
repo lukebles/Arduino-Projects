@@ -4,61 +4,76 @@
  * Il LED lampeggia un certo numero di volte (controllato da maxBlinkCount), 
  * dopodiché si ferma automaticamente.
 */
+#ifndef LKBLINKER_H
+#define LKBLINKER_H
 
 #include <LkMultivibrator.h>
-
-LkMultivibrator fa(500, MONOSTABLE);
-LkMultivibrator fb(500, MONOSTABLE);
 
 class LkBlinker {
   private:
     int _maxBlinkCount;
     int _currentBlinkCount = 0;
-    int _pinBlink;
+    int _pin;
     bool _isEnabled = false;
-    bool _isInverted = false;
+    bool _inverted = false;
+    bool _vibrating = false;
+    int _frequency;
+    LkMultivibrator _blinkOnTimer;
+    LkMultivibrator _blinkOffTimer;
 
     void setLedState(bool state) {
-      digitalWrite(_pinBlink, (_isInverted != state) ? HIGH : LOW);
+      if (state) {
+        if (_vibrating) {
+          // Attiva il tono alla frequenza specificata
+          tone(_pin, _frequency);
+        } else {
+          // Accendi il LED fisso
+          digitalWrite(_pin, _inverted ? LOW : HIGH);
+        }
+      } else {
+        // Disattiva il tono e spegni il LED
+        noTone(_pin);
+        digitalWrite(_pin, _inverted ? HIGH : LOW);
+      }
     }
 
   public:
-    // Aggiunta del parametro _maxBlinkCount con un valore di default a 3
-    LkBlinker(int pinBlink, bool isInverted, int maxBlinkCount = 3) :
-      _pinBlink(pinBlink),
-      _isInverted(isInverted),
-      _maxBlinkCount(maxBlinkCount)
-    {
-      pinMode(_pinBlink, OUTPUT);
+    // Costruttore con parametri
+    LkBlinker(int pin, bool inverted, int maxBlinkCount = 3, bool vibrating = false, int frequency = 3000)
+      : _pin(pin), _inverted(inverted), _maxBlinkCount(maxBlinkCount), _vibrating(vibrating), _frequency(frequency), 
+        _blinkOnTimer(500, MONOSTABLE), _blinkOffTimer(500, MONOSTABLE) {
+      pinMode(_pin, OUTPUT);
       setLedState(false);
     }
 
     void loop() {
       if (_isEnabled) {
-        if (fa.expired()) {
+        if (_blinkOnTimer.expired()) {
           setLedState(true);
-          fb.start();
+          _blinkOffTimer.start();
           _currentBlinkCount++;
         }
 
-        if (fb.expired()) {
+        if (_blinkOffTimer.expired()) {
           setLedState(false);
           if (_currentBlinkCount >= _maxBlinkCount) {
             _isEnabled = false;
             _currentBlinkCount = 0;
           } else {
-            fa.start();
+            _blinkOnTimer.start();
           }
         }
       }
     }
 
     void enable() {
-      fa.start();
+      _blinkOnTimer.start();
       _isEnabled = true;
       _currentBlinkCount = 0;  // Resetta il contatore dei lampeggi ogni volta che abiliti
     }
 };
 
+
+#endif // LKBLINKER_H
 
 

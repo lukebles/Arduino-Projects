@@ -12,6 +12,7 @@ const int LED_PIN = 13;
 const int RX_PIN = 11;
 const int TX_PIN = 12;
 const int BADENIA_PIN = 6;
+const int PIEZO_CAPSULA_PIN = 7;
 
 struct __attribute__((packed)) packet_RadioRxEnergy {
     byte sender; // 1 byte
@@ -37,6 +38,8 @@ uint16_t prevActiveCount = 0;
 uint16_t prevReactiveCount = 0;
 
 LkBlinker allarme_badenia(BADENIA_PIN,true);
+LkBlinker allarme_piezo(PIEZO_CAPSULA_PIN, false, 4, true, 3000); // 3 kHz sul pin 12, non invertito, con 5 lampeggi
+LkMultivibrator spia_segnale_radio(100,MONOSTABLE);
 
 uint16_t intensitaLuminosa = 0;
 
@@ -55,10 +58,17 @@ void setup() {
     }
     //
     radio.globalSetup(2000, TX_PIN, RX_PIN);  
+    //
+    spia_segnale_radio.start();
+    digitalWrite(LED_PIN, HIGH);
 }
 
 void loop() {
   allarme_badenia.loop();
+
+  if (spia_segnale_radio.expired()){
+    digitalWrite(LED_PIN, LOW);
+  }
   // =====================
   // RICEZIONI RADIO
   // =====================
@@ -67,7 +77,10 @@ void loop() {
     uint8_t rawBufferLen;
     radio.getRawBuffer(rawBuffer, rawBufferLen);
     byte sender = rawBuffer[rawBufferLen - 1]; // Il mittente è l'ultimo byte
-
+    // segnala che è stato ricevuto un segnale radio
+    spia_segnale_radio.start();
+    digitalWrite(LED_PIN,HIGH);
+    //
     if (sender == 1) {
       // ==============
       // Dati elettrici
@@ -101,6 +114,7 @@ void loop() {
             // Controlla se la potenza supera la soglia
             if (power > 3990.0) {
               allarme_badenia.enable(); 
+              allarme_piezo.enable();
             }                     
           }
         }
@@ -118,6 +132,7 @@ void loop() {
       //
       intensitaLuminosa = rcvdLight.intensity;
     }
+
   }
 
   // ========================================================
@@ -148,6 +163,7 @@ void loop() {
     } else {
       if(byteArray[0] == SUON_BADENIA){
         allarme_badenia.enable(); 
+        allarme_piezo.enable();
       }
     }
     // clear the string:
