@@ -73,7 +73,7 @@ const int PTT_PIN = 13;
 const bool PTT_INV = false;
 const int SPEED = 2000;
 
-#define SENDER_ENERGY 1 // CAMBIARE A SECONDA DEL DISPOSITIVO
+#define ID_ENERGYSEND 1 // CAMBIARE A SECONDA DEL DISPOSITIVO
 
 struct __attribute__((packed)) EnergyData {
     byte sender; // 1 byte
@@ -127,7 +127,7 @@ void loop(void) {
     wdt_int = false;
     // Composizione del messaggio
     EnergyData energyMsg;
-    energyMsg.sender = SENDER_ENERGY;
+    energyMsg.sender = ID_ENERGYSEND;
     energyMsg.activeCount = activePulses;
     energyMsg.reactiveCount = reactivePulses;
     radioEnergy.sendStructure(energyMsg);

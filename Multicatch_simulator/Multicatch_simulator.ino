@@ -1,6 +1,7 @@
 // =================================
 // simula la ricezione di pacchetti 
 // via radio e li invia via seriale
+// serve per testare WebNexus
 // ================================
 
 struct __attribute__((packed)) DataPacket {

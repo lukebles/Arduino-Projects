@@ -13,6 +13,8 @@ void handleRoot(AsyncWebServerRequest *request) {
 void setupWebServer() {
     server.serveStatic("/Chart.min.js", LittleFS, "/Chart.min.js");
 
+    server.serveStatic("/config.js", LittleFS, "/config.js");
+
     server.on("/", HTTP_GET, handleRoot);
 
     server.on("/page1.html", HTTP_GET, [](AsyncWebServerRequest *request){

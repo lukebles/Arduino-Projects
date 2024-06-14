@@ -8,6 +8,9 @@ struct __attribute__((packed)) packet_for_WebNexus {
     unsigned long timeDiff;
 };
 
+const byte ID_ENERGYSEND = 1; 
+const byte ID_LIGHTSEND = 2;
+
 const int LED_PIN = 13;
 const int RX_PIN = 11;
 const int TX_PIN = 12;
@@ -39,7 +42,7 @@ uint16_t prevReactiveCount = 0;
 
 LkBlinker allarme_badenia(BADENIA_PIN,true);
 LkBlinker allarme_piezo(PIEZO_CAPSULA_PIN, false, 4, true, 3000); // 3 kHz sul pin 12, non invertito, con 5 lampeggi
-LkMultivibrator spia_segnale_radio(100,MONOSTABLE);
+LkMultivibrator spia_segnale_radio(30,MONOSTABLE);
 
 uint16_t intensitaLuminosa = 0;
 
@@ -81,7 +84,7 @@ void loop() {
     spia_segnale_radio.start();
     digitalWrite(LED_PIN,HIGH);
     //
-    if (sender == 1) {
+    if (sender == ID_ENERGYSEND) {
       // ==============
       // Dati elettrici
       // ==============
