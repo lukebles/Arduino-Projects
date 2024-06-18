@@ -65,55 +65,55 @@ const char* getMonthAbbreviation(int month) {
 
 ///////////// SAVE / LOAD CONGURAZIONE ////////
 
-void saveConfig() {
-  File file = LittleFS.open("/config.ini", "w");
-  if (!file) {
-      Serial.println("Failed to open config file for writing");
-      return;
-  }
+// void saveConfig() {
+//   File file = LittleFS.open("/config.ini", "w");
+//   if (!file) {
+//       Serial.println("Failed to open config file for writing");
+//       return;
+//   }
 
-  for (int i = 0; i < MAX_CONFIG_ITEMS; i++) {
-      if (strlen(configuraz[i].key) > 0) {
-          file.print(configuraz[i].key);
-          file.print("=");
-          file.println(configuraz[i].value);
-      }
-  }
+//   for (int i = 0; i < MAX_CONFIG_ITEMS; i++) {
+//       if (strlen(configuraz[i].key) > 0) {
+//           file.print(configuraz[i].key);
+//           file.print("=");
+//           file.println(configuraz[i].value);
+//       }
+//   }
 
-  file.close();
-  LittleFS.end();
-  Serial.println("Configuration saved");
-}
+//   file.close();
+//   LittleFS.end();
+//   Serial.println("Configuration saved");
+// }
 
-void loadConfig() {
-    File file = LittleFS.open("/config.ini", "r");
-    if (!file) {
-        Serial.println("Failed to open config file for reading");
-        return;
-    }
+// void loadConfig() {
+//     File file = LittleFS.open("/config.ini", "r");
+//     if (!file) {
+//         Serial.println("Failed to open config file for reading");
+//         return;
+//     }
 
-    int index = 0;
-    while (file.available() && index < MAX_CONFIG_ITEMS) {
-        String line = file.readStringUntil('\n');
-        int separatorIndex = line.indexOf('=');
-        if (separatorIndex == -1) continue;
+//     int index = 0;
+//     while (file.available() && index < MAX_CONFIG_ITEMS) {
+//         String line = file.readStringUntil('\n');
+//         int separatorIndex = line.indexOf('=');
+//         if (separatorIndex == -1) continue;
 
-        String key = line.substring(0, separatorIndex);
-        String value = line.substring(separatorIndex + 1);
+//         String key = line.substring(0, separatorIndex);
+//         String value = line.substring(separatorIndex + 1);
 
-        key.trim();
-        value.trim();
+//         key.trim();
+//         value.trim();
 
-        strncpy(configuraz[index].key, key.c_str(), MAX_KEY_LENGTH);
-        strncpy(configuraz[index].value, value.c_str(), MAX_VALUE_LENGTH);
+//         strncpy(configuraz[index].key, key.c_str(), MAX_KEY_LENGTH);
+//         strncpy(configuraz[index].value, value.c_str(), MAX_VALUE_LENGTH);
 
-        index++;
-    }
+//         index++;
+//     }
 
-    file.close();
-    LittleFS.end();
-    Serial.println("Configuration loaded");
-}
+//     file.close();
+//     LittleFS.end();
+//     Serial.println("Configuration loaded");
+// }
 
 ///////////// SAVE / LOAD DATA ////////////////
 
@@ -348,7 +348,7 @@ void notifyClients() {
                   ",\"timestampLong\":\"" + String(bufferlong) + "\"" +
                   ",\"timestamp\":\"" + String(buffer) + "\"}";
 
-    Serial.println(json);
+    //Serial.println(json);
     webSocket.broadcastTXT(json);
 }
 

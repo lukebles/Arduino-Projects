@@ -8,9 +8,17 @@
 
 extern WebSocketsServer webSocket;
 
+template <typename T>
+void sendToMultiCatch(T message) {
+    Serial.println(message);
+}
+
 int powerLimitValue;
 void setPowerLimitValue(int value){
   powerLimitValue = value;
+  // Serial.println();
+  // Serial.print("-----");
+  // Serial.println(powerLimitValue);
 }
 
 void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -33,6 +41,7 @@ void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t
         setTime(t);
 
         webSocket.sendTXT(num, "Time updated successfully");
+        sendToMultiCatch("DATETIME-OK"); // invio comando a MultiCatch
       }
     } else if (message.equals("getHourEnergy")) {
         sendClient_hours(num); 
@@ -40,14 +49,18 @@ void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t
         sendClient_days(num); 
     } else if (message.equals("getPowerLimit")){
         sendClient_powerLimit(num,powerLimitValue); 
-        Serial.println(powerLimitValue);
+        // Serial.println(powerLimitValue);
     } else if (message.startsWith("POWER-LIMIT=")){
         powerLimitValue = message.substring(12).toInt();
         EEPROM.write(0, powerLimitValue & 0xFF);
         EEPROM.write(0 + 1, (powerLimitValue >> 8) & 0xFF);
-        Serial.println(message);
+        EEPROM.commit(); 
+        // Serial.println(message);
+        int powLimit = EEPROM.read(0) + (EEPROM.read(0 + 1) << 8);
+        // Serial.print("salvato: ");
+        // Serial.println(powLimit);
     } else if (message.startsWith("ALARM-TEST")){
-        Serial.println(message);
+        sendToMultiCatch(message); // invio comando a MultiCatch
     } else {
       //Serial.println(message);
     }

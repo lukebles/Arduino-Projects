@@ -17,6 +17,7 @@ DataInstant istantPoints[MAX_DATA_POINTS];
 DataEnergyHours hoursPoints[MAX_DATA_POINTS];
 DataEnergyDays daysPoints[MAX_DATA_POINTS];
 
+const int EEPROM_SIZE = 4;
 
 void generateData() {
     time_t baseTime = now(); // Data di partenza: 3 Giugno 2024 ore 18:00
@@ -58,14 +59,27 @@ void setup() {
         Serial.println("An error has occurred while mounting LittleFS");
         return;
     }
+
+// Controllo dello spazio disponibile
+    // FSInfo fs_info;
+    // LittleFS.info(fs_info);
+    // Serial.print("Total space: ");
+    // Serial.println(fs_info.totalBytes);
+    // Serial.print("Used space: ");
+    // Serial.println(fs_info.usedBytes);
+    
     //////////////////// CARICA I DATI SALVATI //////////////////
+    EEPROM.begin(EEPROM_SIZE); 
+    
     int powLimit = EEPROM.read(0) + (EEPROM.read(0 + 1) << 8);
     if (powLimit == -1) {
         powLimit = 3990;
         EEPROM.write(0, powLimit & 0xFF);
         EEPROM.write(0 + 1, (powLimit >> 8) & 0xFF);
-
+        EEPROM.commit(); 
     }
+    // Serial.print("riavvio: ");
+    // Serial.println(powLimit);
     setPowerLimitValue(powLimit); // lo salva per la parte HTML
 
     loadData();
@@ -109,7 +123,7 @@ void loop() {
         // riceve il pacchetto
         DataPacket packet = read_serialdatapacket();
         // === riempie i dati orari ===
-        Serial.println(packet.activeDiff);
+        //Serial.println(packet.activeDiff);
         fillTable_hours(packet.activeDiff,packet.reactiveDiff);
         // == riempie i dati giornalieri ==
         fillTable_days(packet.activeDiff,packet.reactiveDiff);

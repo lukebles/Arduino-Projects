@@ -54,6 +54,7 @@ LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, false, 4, true, 3000);
 // =======================================================
 
 LkMultivibrator flash_segnale_radio(30, MONOSTABLE);
+LkMultivibrator flash_datetime_not_set(300, ASTABLE);
 
 uint16_t intensitaLuminosa = 0;
 int powerLimitValue;
@@ -63,21 +64,25 @@ unsigned long prevTime = 0;
 uint16_t prevActiveCount = 0;
 uint16_t prevReactiveCount = 0;
 
+const int EEPROM_SIZE = 4;
+
 // Prototipi delle funzioni
-void saveToEEPROM(int value);
-void setupHardware();
-void loadPowerLimitValue();
-void checkString();
-void handleRadioReception();
-void handleSerialInput();
-void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy);
-void handleLightData(packet_RadioRxLight& rcvdLight);
+// void saveToEEPROM(int value);
+// void setupHardware();
+// void loadPowerLimitValue();
+// void checkString();
+// void handleRadioReception();
+// void handleSerialInput();
+// void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy);
+// void handleLightData(packet_RadioRxLight& rcvdLight);
 
 void setup() {
     setupHardware();
     loadPowerLimitValue();
+    // Serial.println(powerLimitValue);
     radio.globalSetup(2000, TX_PIN, RX_PIN);
     flash_segnale_radio.start();
+    flash_datetime_not_set.start();
     digitalWrite(LED_PIN, HIGH);
 }
 
@@ -85,6 +90,10 @@ void loop() {
     allarme_segnalatore.loop();
     if (flash_segnale_radio.expired()) {
         digitalWrite(LED_PIN, LOW);
+    }
+    if (flash_datetime_not_set.expired()) {
+        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        // Serial.println("Data ora non impostata");
     }
     handleRadioReception();
     if (msgSerialFromWebNexus) {
@@ -123,6 +132,7 @@ void setupHardware() {
     while (!Serial) {
         ; 
     }
+    // EEPROM.begin(EEPROM_SIZE);
 }
 
 void loadPowerLimitValue() {
@@ -131,19 +141,24 @@ void loadPowerLimitValue() {
         powerLimitValue = 3990;
         saveToEEPROM(powerLimitValue);
     }
+    // Serial.println(powerLimitValue);
 }
 
 void checkString() {
-  Serial.println(serialRxString);
+  // Serial.println(serialRxString);
     if (strncmp(serialRxString, "POWER-LIMIT=", 12) == 0) {
         int powerLimitValue = atoi(serialRxString + 12);
         saveToEEPROM(powerLimitValue);
-        Serial.println(powerLimitValue);
-
+        // Serial.println(powerLimitValue);
     } else if (strcmp(serialRxString, "ALARM-TEST") == 0) {
         allarme_segnalatore.enable(); 
-        Serial.println("Test Allarme");
+        // Serial.println("Test Allarme");
+    } else if (strcmp(serialRxString, "DATETIME-OK") == 0) {
+        // Serial.println()
+        flash_datetime_not_set.stop();
+        digitalWrite(LED_PIN,LOW);
     }
+
 }
 
 void handleRadioReception() {
@@ -183,8 +198,9 @@ void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy) {
             // e se tutto è ok...
             //
             // invia un pacchetto sulla seriale per WebNexus anticipando
-            // il valore 0xFF che serve anche per discriminare
-            // il tipo di messaggio inviato...
+            // il valore 0xFF che serve come sincronizzaione (o discriminare
+            // il tipo di messaggio inviato. al momento serve solo per 
+            // sincronizzazione)
             packet_for_WebNexus packet = {activeDiff, reactiveDiff, timeDiff};
             Serial.write(0xFF);
             Serial.write((uint8_t*)&packet, sizeof(packet));
