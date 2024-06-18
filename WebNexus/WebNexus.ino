@@ -17,6 +17,7 @@ DataInstant istantPoints[MAX_DATA_POINTS];
 DataEnergyHours hoursPoints[MAX_DATA_POINTS];
 DataEnergyDays daysPoints[MAX_DATA_POINTS];
 
+
 void generateData() {
     time_t baseTime = now(); // Data di partenza: 3 Giugno 2024 ore 18:00
     time_t incrementTimeInstant = 10; // Incremento di 10 secondi per ogni DataInstant
@@ -58,6 +59,15 @@ void setup() {
         return;
     }
     //////////////////// CARICA I DATI SALVATI //////////////////
+    int powLimit = EEPROM.read(0) + (EEPROM.read(0 + 1) << 8);
+    if (powLimit == -1) {
+        powLimit = 3990;
+        EEPROM.write(0, powLimit & 0xFF);
+        EEPROM.write(0 + 1, (powLimit >> 8) & 0xFF);
+
+    }
+    setPowerLimitValue(powLimit); // lo salva per la parte HTML
+
     loadData();
 
     // prende come data/ora l'ultimo dato presente

@@ -1,43 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consumi Elettrici Giornalieri</title>
-<script src="/Chart.min.js"></script>
-<script>
+    <title id="titoloPagina2"></title>
+    <script src="/Chart.min.js"></script>
+    <script src="config.js"></script> 
+    <script>
 
-function getBarColor(datasetIndex, value) {
-    var yellowShades = ['#FFF9C4', '#FFF59D', '#FFF176', '#FFEB3B', '#FDD835', '#FBC02D', '#F9A825'];
-    var blueShades = ['#BBDEFB', '#90CAF9', '#64B5F6', '#42A5F5', '#2196F3', '#1E88E5', '#1976D2'];
+    function getBarColor(datasetIndex, value) {
+        var yellowShades = ['#FFF9C4', '#FFF59D', '#FFF176', '#FFEB3B', '#FDD835', '#FBC02D', '#F57C00'];
+        var blueShades = ['#BBDEFB', '#90CAF9', '#64B5F6', '#42A5F5', '#2196F3', '#1E88E5', '#7B1FA2'];
 
-    var shades;
-    if (datasetIndex === 0) {
-        shades = blueShades ;
-    } else {
-        shades = yellowShades ;
+        var shades;
+        if (datasetIndex === 0) {
+            shades = blueShades ;
+        } else {
+            shades = yellowShades ;
+        }
+
+        if (value <= 500) return shades[0];
+        if (value <= 1000) return shades[1];
+        if (value <= 2000) return shades[2];
+        if (value <= 3000) return shades[3];
+        if (value <= 3600) return shades[4];
+        if (value <= 4000) return shades[5];
+        return shades[6];
     }
 
-    if (value <= 4000) return shades[0];
-    if (value <= 6000) return shades[1];
-    if (value <= 8000) return shades[2];
-    if (value <= 10000) return shades[3];
-    if (value <= 12000) return shades[4];
-    if (value <= 14000) return shades[5];
-    return shades[6];
-}
-
-function updateChartColors(chart) {
-    for (var i = 0; i < chart.data.datasets.length; i++) {
-        var dataset = chart.data.datasets[i];
-        dataset.backgroundColor = [];
-        for (var j = 0; j < dataset.data.length; j++) {
-            var value = dataset.data[j];
-            dataset.backgroundColor[j] = getBarColor(i, value);
+    function updateChartColors(chart) {
+        for (var i = 0; i < chart.data.datasets.length; i++) {
+            var dataset = chart.data.datasets[i];
+            dataset.backgroundColor = [];
+            for (var j = 0; j < dataset.data.length; j++) {
+                var value = dataset.data[j];
+                dataset.backgroundColor[j] = getBarColor(i, value);
+            }
         }
     }
-}
-
 
     // Polyfill per Array.prototype.fill
     if (!Array.prototype.fill) {
@@ -90,72 +88,80 @@ function updateChartColors(chart) {
         };
     }
 
-function calculateAverage(data) {
-    if (data.length === 0) return 0;  // Aggiungere questa linea
-    var sum = 0;
-    for (var i = 0; i < data.length; i++) {
-        sum += data[i];
+    function calculateAverage(data) {
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) {
+            sum += data[i];
+        }
+        return sum / data.length;
     }
-    return sum / data.length;
-}
 
+    function drawAverageLines(chart, averages, totalAverage) {
+        var ctx = chart.chart.ctx;
+        var chartArea = chart.chartArea;
+        var yScale = chart.scales['y-axis-0'];
 
-function drawAverageLines(chart, averages, totalAverage) {
-    var ctx = chart.ctx;  // Cambiare questa linea
-    var chartArea = chart.chartArea;
-    var yScale = chart.scales['y-axis-0'];
+        // Disegna linee di media per ogni dataset
+        for (var i = 0; i < averages.length; i++) {
+            var yValue = yScale.getPixelForValue(averages[i]);
 
-    // Disegna linee di media per ogni dataset
-    for (var i = 0; i < averages.length; i++) {
-        var yValue = yScale.getPixelForValue(averages[i]);
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, yValue);
+            ctx.lineTo(chartArea.right, yValue);
+            ctx.strokeStyle = chart.data.datasets[i].borderColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
 
+        // Disegna la linea di media totale
+        var yTotalValue = yScale.getPixelForValue(totalAverage);
         ctx.save();
         ctx.beginPath();
-        ctx.moveTo(chartArea.left, yValue);
-        ctx.lineTo(chartArea.right, yValue);
-        ctx.strokeStyle = chart.data.datasets[i].borderColor;
+        ctx.moveTo(chartArea.left, yTotalValue);
+        ctx.lineTo(chartArea.right, yTotalValue);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';  // Colore per la media totale
         ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);  // Linea tratteggiata per la media totale
         ctx.stroke();
         ctx.restore();
     }
 
-    // Disegna la linea di media totale
-    var yTotalValue = yScale.getPixelForValue(totalAverage);
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(chartArea.left, yTotalValue);
-    ctx.lineTo(chartArea.right, yTotalValue);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';  // Colore per la media totale
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);  // Linea tratteggiata per la media totale
-    ctx.stroke();
-    ctx.restore();
-}
-
-
-Chart.plugins.register({
-    afterDraw: function(chart) {
-        var averages = [];
-        for (var i = 0; i < chart.data.datasets.length; i++) {
-            averages.push(calculateAverage(chart.data.datasets[i].data));
-        }
-
-        // Calcola la media totale della somma dei valori delle colonne
-        var totalSumData = [];
-        for (var j = 0; j < chart.data.labels.length; j++) {
-            var totalSum = 0;
-            for (var k = 0; k < chart.data.datasets.length; k++) {
-                totalSum += chart.data.datasets[k].data[j];
+    Chart.plugins.register({
+        afterDraw: function(chart) {
+            var averages = [];
+            for (var i = 0; i < chart.data.datasets.length; i++) {
+                averages.push(calculateAverage(chart.data.datasets[i].data));
             }
-            totalSumData.push(totalSum);
+
+            // Calcola la media totale della somma dei valori delle colonne
+            var totalSumData = [];
+            for (var j = 0; j < chart.data.labels.length; j++) {
+                var totalSum = 0;
+                for (var k = 0; k < chart.data.datasets.length; k++) {
+                    totalSum += chart.data.datasets[k].data[j];
+                }
+                totalSumData.push(totalSum);
+            }
+            var totalAverage = calculateAverage(totalSumData);
+
+            drawAverageLines(chart, averages, totalAverage);
         }
-        var totalAverage = calculateAverage(totalSumData);
+    });
 
-        drawAverageLines(chart, averages, totalAverage);
-    }
-});
-
-</script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Utilizza le variabili globali definite in config.js
+        document.title = config.titoloPagina2;
+        document.querySelector('#descrizione').textContent = config.descrizione2;
+        document.querySelector('#menuHome').textContent = config.menuHome;
+        document.querySelector('#menuTitolo1').textContent = config.menuTitolo1;
+        document.querySelector('#menuTitolo2').textContent = config.menuTitolo2;
+        document.querySelector('#menuTitolo3').textContent = config.menuTitolo3;
+        document.querySelector('#menuTitolo4').textContent = config.menuTitolo4;
+        document.querySelector('#menuTitolo5').textContent = config.menuTitolo5;
+    });
+    </script>
 </head>
 <body>
     <div class="container">
@@ -198,8 +204,9 @@ Chart.plugins.register({
             </style>
         </header>
         <main>
-            <p><b>Consumi Elettrici Giornalieri - Wattora (Wh)</b></p>
-          <p id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></p>
+
+            <p id="descrizione"></p>
+            <p id="lastRadio" background-color: lightgrey;></p>
             <canvas id="myChart" width="400" height="200"></canvas>
             <script>
             var ctx = document.getElementById('myChart').getContext('2d');
@@ -207,14 +214,14 @@ Chart.plugins.register({
                 labels: new Array(31).fill(''),
                 datasets: [
                     {
-                        label: 'Energia Attiva',
+                        label: config.etichettaPotenzaAttiva,
                         backgroundColor: '#BBDEFB',
                         borderColor: '#1976D2', // blu 
                         borderWidth: 1,
                         data: new Array(31).fill(0)
                     },
                     {
-                        label: 'Energia Reattiva',
+                        label: config.etichettaPotenzaReattiva,
                         backgroundColor: 'FFF9C4',
                         borderColor: '#F9A825', // giallo
                         borderWidth: 1,
@@ -223,28 +230,29 @@ Chart.plugins.register({
                 ]
             };
 
-var config = {
-    type: 'bar',
-    data: data,
-    options: {
-        responsive: true,
-        scales: {
-            xAxes: [{
-                stacked: true
-            }],
-            yAxes: [{
-                stacked: true,
-                // ticks: {
-                //     min: 0,
-                //     max: 16000
-                // }
-            }]
-        }
-    }
-};
+            var configChart = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    scales: {
+                        xAxes: [{
+                            stacked: true
+                        }],
+                        yAxes: [{
+                            stacked: true,
+                            // ticks: {
+                            //     min: 0,
+                            //     max: 6000
+                            // }
+                        }]
+                    }
+                }
+            };
 
 
-            var myChart = new Chart(ctx, config);
+
+            var myChart = new Chart(ctx, configChart);
 
             var websocket = new WebSocket('ws://' + location.hostname + ':81/');
 

@@ -3,7 +3,7 @@
 
 #include <ESP8266WiFi.h>
 
-const char* ssid = "sid2";
+const char* ssid = "sid3";
 const char* password = "pw12345678";
 
 void setupWiFi() {

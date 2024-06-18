@@ -1,11 +1,77 @@
-<!DOCTYPE html>
-<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/skeleton.min.css">
-   
-    <title>Set Date and Time</title>
+    <title id="titoloPagina5"></title>
+    <script src="/Chart.min.js"></script>
+    <script src="config.js"></script> 
+    <script>
+
+
+    // Polyfill per Array.prototype.fill
+    if (!Array.prototype.fill) {
+        Object.defineProperty(Array.prototype, 'fill', {
+            value: function(value) {
+                if (this == null) {
+                    throw new TypeError('this is null or not defined');
+                }
+                var O = Object(this);
+                var len = O.length >>> 0;
+                var start = arguments[1];
+                var relativeStart = start >> 0;
+                var k = relativeStart < 0 ? Math.max(len + relativeStart, 0) : Math.min(relativeStart, len);
+                var end = arguments[2];
+                var relativeEnd = end === undefined ? len : end >> 0;
+                var final = relativeEnd < 0 ? Math.max(len + relativeEnd, 0) : Math.min(relativeEnd, len);
+                while (k < final) {
+                    O[k] = value;
+                    k++;
+                }
+                return O;
+            }
+        });
+    }
+
+    // Polyfill per Array.prototype.forEach
+    if (!Array.prototype.forEach) {
+        Array.prototype.forEach = function(callback, thisArg) {
+            var T, k;
+            if (this == null) {
+                throw new TypeError('this is null or not defined');
+            }
+            var O = Object(this);
+            var len = O.length >>> 0;
+            if (typeof callback !== 'function') {
+                throw new TypeError(callback + ' is not a function');
+            }
+            if (arguments.length > 1) {
+                T = thisArg;
+            }
+            k = 0;
+            while (k < len) {
+                var kValue;
+                if (k in O) {
+                    kValue = O[k];
+                    callback.call(T, kValue, k, O);
+                }
+                k++;
+            }
+        };
+    }
+
+
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Utilizza le variabili globali definite in config.js
+        document.title = config.titoloPagina5;
+        document.querySelector('#descrizione').textContent = config.descrizione5;
+        document.querySelector('#menuHome').textContent = config.menuHome;
+        document.querySelector('#menuTitolo1').textContent = config.menuTitolo1;
+        document.querySelector('#menuTitolo2').textContent = config.menuTitolo2;
+        document.querySelector('#menuTitolo3').textContent = config.menuTitolo3;
+        document.querySelector('#menuTitolo4').textContent = config.menuTitolo4;
+        document.querySelector('#menuTitolo5').textContent = config.menuTitolo5;
+    });
+    </script>
 </head>
 <body>
     <div class="container">
@@ -14,12 +80,12 @@
             <nav class="row">
                 <div class="twelve columns">
                     <ul class="nav-list">
-                        <li><a href="/">Istan</a></li>
-                        <li><a href="/page1.html">Orari</a></li>
-                        <li><a href="/page2.html">Giorn</a></li>
-                        <li><a href="/page3.html">--</a></li>
-                        <li><a href="/page4.html">--</a></li>
-                        <li><a href="/page5.html">Impos</a></li>
+                        <li><a href="/" id="menuHome"></a></li>
+                        <li><a href="/page1.html" id="menuTitolo1"></a></li>
+                        <li><a href="/page2.html" id="menuTitolo2"></a></li>
+                        <li><a href="/page3.html" id="menuTitolo3"></a></li>
+                        <li><a href="/page4.html" id="menuTitolo4"></a></li>
+                        <li><a href="/page5.html" id="menuTitolo5"></a></li>
                     </ul>
                 </div>
             </nav>
@@ -47,58 +113,91 @@
                 }
             </style>
         </header>
+
         <main>
 
-            <h1>Set Date and Time</h1>
-          <div id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></div>
+<p id="descrizione"></p>
+
+<p id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></p>
+
 <button id="setTimeButton">Imposta la data e l'ora di ESP01</button>
+<button id="testAlarmButton">Test Suoneria</button>
+<input id="powerLimitInput" type="text" maxlength="6" placeholder="Inserisci limite">
+<button id="setPowerLimitButton">Set Power Limit</button>
 
 <script>
-// Creazione del WebSocket
-var websocket = new WebSocket('ws://' + location.hostname + ':81/');
+    // Creazione del WebSocket
+    var websocket = new WebSocket('ws://' + location.hostname + ':81/');
 
-// Gestione dell'evento onopen
-websocket.onopen = function() {
-    console.log('WebSocket connection established');
-    websocket.send('getPowerData');
-};
+    // Gestione dell'evento onopen
+    websocket.onopen = function() {
+        console.log('WebSocket connection established');
+        websocket.send('getPowerLimit');
+    };
 
-// Gestione dell'evento onmessage
-websocket.onmessage = function(event) {
-    var message = JSON.parse(event.data);
+    // Gestione dell'evento onmessage
+    websocket.onmessage = function(event) {
+        var message = JSON.parse(event.data);
 
-    if (Array.isArray(message)) {
-        // Aggiungi il codice per gestire l'array se necessario
-    } else {
-        // Aggiornamento del timestamp
-        var lastRadio = document.getElementById('lastRadio');
-        lastRadio.innerText = message.timestampLong;
+        // Aggiornamento del valore power limit
+        if (message.powerLimit) {
+            var powerLimitInput = document.getElementById('powerLimitInput');
+            powerLimitInput.value = message.powerLimit;
+        } else {
+            if (Array.isArray(message)) {
+                // Aggiungi il codice per gestire l'array se necessario
+            } else {
+                // Aggiornamento del timestamp
+                var lastRadio = document.getElementById('lastRadio');
+                lastRadio.innerText = message.timestampLong;
+            }
+        }
+    };
+
+    // Gestione dell'evento onclose
+    websocket.onclose = function() {
+        console.log('WebSocket connection closed');
+    };
+
+
+    // Funzione per inserire pulsanti e aggiungere eventListener
+    function inserisciPulsanti() {
+        // Pulsante per impostare data e ora
+        var setTimeButton = document.getElementById('setTimeButton');
+        setTimeButton.addEventListener('click', function() {
+            var now = new Date();
+            var dateTimeString = now.getFullYear() + '-' + 
+                ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
+                ('0' + now.getDate()).slice(-2) + ' ' + 
+                ('0' + now.getHours()).slice(-2) + ':' + 
+                ('0' + now.getMinutes()).slice(-2) + ':' + 
+                ('0' + now.getSeconds()).slice(-2);      
+            websocket.send("setTime:" + dateTimeString); 
+            setTimeButton.textContent = 'Data/Ora Aggiornata';
+        });
+
+        // Pulsante per test suoneria
+        var testAlarmButton = document.getElementById('testAlarmButton');
+        testAlarmButton.addEventListener('click', function() {
+            websocket.send("ALARM-TEST");
+        });
+
+        // Casella di testo e pulsante per impostare il power limit
+        var powerLimitInput = document.getElementById('powerLimitInput');
+        var setPowerLimitButton = document.getElementById('setPowerLimitButton');
+        setPowerLimitButton.addEventListener('click', function() {
+            var powerLimit = powerLimitInput.value;
+            if (/^\d{1,6}$/.test(powerLimit)) {
+                websocket.send("POWER-LIMIT=" + powerLimit);
+            } else {
+                alert('Inserisci un valore numerico valido (massimo 6 cifre).');
+            }
+        });
     }
-};
 
-// Gestione dell'evento onclose
-websocket.onclose = function() {
-    console.log('WebSocket connection closed');
-};
+    // Inserimento pulsanti al caricamento della pagina
+    window.onload = inserisciPulsanti;
 
-// Funzione per inserire un pulsante e aggiungere l'eventListener
-function inserisciPulsante() {
-    var pulsante = document.getElementById('setTimeButton');
-    pulsante.addEventListener('click', function() {
-        var now = new Date();
-        var dateTimeString = now.getFullYear() + '-' + 
-            ('0' + (now.getMonth() + 1)).slice(-2) + '-' + 
-            ('0' + now.getDate()).slice(-2) + ' ' + 
-            ('0' + now.getHours()).slice(-2) + ':' + 
-            ('0' + now.getMinutes()).slice(-2) + ':' + 
-            ('0' + now.getSeconds()).slice(-2);      
-        websocket.send("setTime:" + dateTimeString); // Corretto l'errore di variabile
-        pulsante.textContent = 'Data/Ora Aggiornata';
-    });
-}
-
-// Inserimento pulsante
-inserisciPulsante();
 
     </script>
 

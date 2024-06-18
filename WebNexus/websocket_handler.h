@@ -3,9 +3,15 @@
 
 #include <WebSocketsServer_Generic.h>
 #include <TimeLib.h>
+#include <EEPROM.h>
 #include "data_handling.h"
 
 extern WebSocketsServer webSocket;
+
+int powerLimitValue;
+void setPowerLimitValue(int value){
+  powerLimitValue = value;
+}
 
 void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
   if (type == WStype_TEXT) {
@@ -32,8 +38,18 @@ void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t
         sendClient_hours(num); 
     } else if (message.equals("getDaysEnergy")){
         sendClient_days(num); 
+    } else if (message.equals("getPowerLimit")){
+        sendClient_powerLimit(num,powerLimitValue); 
+        Serial.println(powerLimitValue);
+    } else if (message.startsWith("POWER-LIMIT=")){
+        powerLimitValue = message.substring(12).toInt();
+        EEPROM.write(0, powerLimitValue & 0xFF);
+        EEPROM.write(0 + 1, (powerLimitValue >> 8) & 0xFF);
+        Serial.println(message);
+    } else if (message.startsWith("ALARM-TEST")){
+        Serial.println(message);
     } else {
-
+      //Serial.println(message);
     }
   }
 }

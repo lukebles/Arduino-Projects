@@ -330,6 +330,11 @@ void sendClient_istant(uint8_t num) {
     webSocket.sendTXT(num, json);
 }
 
+void sendClient_powerLimit(uint8_t num,int powerLimit) {
+    String json = "{\"powerLimit\":" + String(powerLimit) + "}";
+    webSocket.sendTXT(num, json);
+}
+
 void notifyClients() {
     char buffer[20];
     char bufferlong[30];
