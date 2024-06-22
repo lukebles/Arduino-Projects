@@ -55,12 +55,15 @@ void handleWebSocketMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t
         EEPROM.write(0, powerLimitValue & 0xFF);
         EEPROM.write(0 + 1, (powerLimitValue >> 8) & 0xFF);
         EEPROM.commit(); 
+        sendToMultiCatch(message); // invio comando a MultiCatch
         // Serial.println(message);
-        int powLimit = EEPROM.read(0) + (EEPROM.read(0 + 1) << 8);
+        //int powLimit = EEPROM.read(0) + (EEPROM.read(0 + 1) << 8);
         // Serial.print("salvato: ");
         // Serial.println(powLimit);
     } else if (message.startsWith("ALARM-TEST")){
         sendToMultiCatch(message); // invio comando a MultiCatch
+    } else if (message.startsWith("SAVE")){
+        saveData();
     } else {
       //Serial.println(message);
     }

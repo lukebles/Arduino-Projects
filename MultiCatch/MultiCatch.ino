@@ -145,10 +145,12 @@ void loadPowerLimitValue() {
 }
 
 void checkString() {
-  // Serial.println(serialRxString);
+  Serial.println(serialRxString);
     if (strncmp(serialRxString, "POWER-LIMIT=", 12) == 0) {
-        int powerLimitValue = atoi(serialRxString + 12);
+        powerLimitValue = atoi(serialRxString + 12);
         saveToEEPROM(powerLimitValue);
+        Serial.print("Impostato valore: ");
+        Serial.println(powerLimitValue);
         // Serial.println(powerLimitValue);
     } else if (strcmp(serialRxString, "ALARM-TEST") == 0) {
         allarme_segnalatore.enable(); 
@@ -185,31 +187,45 @@ void handleRadioReception() {
 void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy) {
     unsigned long currentTime = millis();
     if (prevTime != 0) {
-        unsigned long timeDiff = currentTime - prevTime;
-        uint16_t activeDiff = rcvdEnergy.activeCount - prevActiveCount;
-        uint16_t reactiveDiff = rcvdEnergy.reactiveCount - prevReactiveCount;
+      unsigned long timeDiff = currentTime - prevTime;
+      uint16_t activeDiff = rcvdEnergy.activeCount - prevActiveCount;
+      uint16_t reactiveDiff = rcvdEnergy.reactiveCount - prevReactiveCount;
 
-        // i valori qui indicati servono a capire se l'ultima ricezione
-        // del segnale radio è recente oppure no...
-        // (una differenza massima di 3600 conteggi - normali sono una decina)
-        // (intervallo di tempo massim 1 ora - normale 9 secondi circa)
-        if (activeDiff < 3600 && timeDiff < 3600000) {
-            float power = (activeDiff * 3600.0) / (timeDiff / 1000.0);
-            // e se tutto è ok...
-            //
-            // invia un pacchetto sulla seriale per WebNexus anticipando
-            // il valore 0xFF che serve come sincronizzaione (o discriminare
-            // il tipo di messaggio inviato. al momento serve solo per 
-            // sincronizzazione)
-            packet_for_WebNexus packet = {activeDiff, reactiveDiff, timeDiff};
-            Serial.write(0xFF);
-            Serial.write((uint8_t*)&packet, sizeof(packet));
-            // poi controlla se la potenza calcolata
-            // supera la soglia limite
-            if (power > float(powerLimitValue)) {
-                allarme_segnalatore.enable();
-            }
+      Serial.print(activeDiff);
+      Serial.print(" - ");
+      Serial.print(timeDiff);
+
+      // i valori qui indicati servono a capire se l'ultima ricezione
+      // del segnale radio è recente oppure no...
+      // (una differenza massima di 3600 conteggi - normali sono una decina)
+      // (intervallo di tempo massim 1 ora - normale 9 secondi circa)
+      if (activeDiff < 3600) {
+        if (timeDiff < 3600000){
+          float power = (activeDiff * 3600.0) / (timeDiff / 1000.0);
+          // e se tutto è ok...
+          //
+          // invia un pacchetto sulla seriale per WebNexus anticipando
+          // il valore 0xFF che serve come sincronizzaione (o discriminare
+          // il tipo di messaggio inviato. al momento serve solo per 
+          // sincronizzazione)
+
+          Serial.print(" - ");
+          Serial.print(power);
+
+          Serial.print(" - ");
+          Serial.println(powerLimitValue);
+
+
+          packet_for_WebNexus packet = {activeDiff, reactiveDiff, timeDiff};
+          Serial.write(0xFF);
+          Serial.write((uint8_t*)&packet, sizeof(packet));
+          // poi controlla se la potenza calcolata
+          // supera la soglia limite
+          if (power > float(powerLimitValue)) {
+            allarme_segnalatore.enable();
+          }
         }
+      }
     }
     prevTime = currentTime;
     prevActiveCount = rcvdEnergy.activeCount;

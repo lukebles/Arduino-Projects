@@ -70,6 +70,7 @@
 <p><button id="testAlarmButton">Test Suoneria</button></p>
 <p><input id="powerLimitInput" type="text" maxlength="6" placeholder="Inserisci limite">
 <button id="setPowerLimitButton">Set Power Limit</button></p>
+<p><button id="saveButton">Memorizza</button></p>
 
 <script>
     // Creazione del WebSocket
@@ -139,6 +140,13 @@
                 alert('Inserisci un valore numerico valido (massimo 6 cifre).');
             }
         });
+
+        // Pulsante per salvataggio dati
+        var saveButton = document.getElementById('saveButton');
+        saveButton.addEventListener('click', function() {
+            websocket.send("SAVE");
+        });
+
     }
 
     // Inserimento pulsanti al caricamento della pagina

@@ -200,18 +200,25 @@ void extractDateTime(time_t timestamp, int *year, int *month, int *day, int *hou
 
 /////////////////// ISTANTE //////////
 
-void fillTable_istant(uint16_t diff_a, uint16_t diff_r, uint16_t timediff){
-  // calcola la potenza
-  float activePower = (diff_a * 3600.0) / (timediff / 1000.0);
-  float reactivePower = (diff_r * 3600.0) / (timediff / 1000.0);
+void fillTable_istant(uint16_t diff_a, uint16_t diff_r, unsigned long timediff) {
+  // Calcola la potenza attiva e reattiva
+  float activePower = (diff_a * 3600.0f) / (timediff / 1000.0f);
+  float reactivePower = (diff_r * 3600.0f) / (timediff / 1000.0f);
+
+  // Arrotonda la potenza
   activePower = roundToTens(activePower);
   reactivePower = roundToTens(reactivePower);
-  //
+
+  // Inserisce i valori calcolati nella struttura dati
   istantPoints[idxIstantTable].activePower = activePower;
   istantPoints[idxIstantTable].reactivePower = reactivePower;
   istantPoints[idxIstantTable].timestamp = now();
   istantPoints[idxIstantTable].timeDiff = timediff;
-  idxIstantTable = idxIstantTable + 1;
+
+  // Aggiorna l'indice per il prossimo inserimento
+  idxIstantTable++;
+
+  // Verifica se l'indice ha raggiunto il massimo
   if (idxIstantTable == MAX_DATA_POINTS) {
       // Sposta tutti i dataPoints verso sinistra di 1
       for (int i = 1; i < MAX_DATA_POINTS; i++) {
@@ -221,6 +228,7 @@ void fillTable_istant(uint16_t diff_a, uint16_t diff_r, uint16_t timediff){
       idxIstantTable = MAX_DATA_POINTS - 1;
   }
 }
+
 
 //////////////// ORA //////////////
 
