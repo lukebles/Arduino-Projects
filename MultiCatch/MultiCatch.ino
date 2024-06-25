@@ -46,11 +46,13 @@ LkRadioStructure<packet_RadioRxEnergy> radio;
 // =======================================================
 // decommentare selezionando il segnalatore acustico usato
 // =======================================================
+// LUCA
 // nessuna frequenza sul pin, 3 colpi di suoneria
-// LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, true);
+LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, true);
 //
+// MARCO
 // 3 kHz sul pin SEGNALATORE_ACUSTICO_PIN, non invertito, con 5 colpi di suoneria
-LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, false, 4, true, 3000); 
+//LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, false, 4, true, 3000); 
 // =======================================================
 
 LkMultivibrator flash_segnale_radio(30, MONOSTABLE);
@@ -223,6 +225,8 @@ void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy) {
           // supera la soglia limite
           if (power > float(powerLimitValue)) {
             allarme_segnalatore.enable();
+            Serial.println(power);
+            
           }
         }
       }

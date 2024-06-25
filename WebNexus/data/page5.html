@@ -145,6 +145,7 @@
         var saveButton = document.getElementById('saveButton');
         saveButton.addEventListener('click', function() {
             websocket.send("SAVE");
+            saveButton.textContent = 'Dati aggiornati';
         });
 
     }

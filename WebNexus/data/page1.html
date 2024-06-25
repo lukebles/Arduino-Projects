@@ -152,6 +152,26 @@
         }
     });
 
+    function getDifferentPart(str1, str2) {
+        var words1 = str1.split(' ');
+        var words2 = str2.split(' ');
+        var minLength = Math.min(words1.length, words2.length);
+        var diffWords = [];
+
+        for (var i = 0; i < minLength; i++) {
+            if (words1[i] !== words2[i]) {
+                diffWords.push(words2[i]);
+            }
+        }
+
+        // Aggiungi le parole rimanenti della seconda stringa se sono più lunghe
+        for (var j = minLength; j < words2.length; j++) {
+            diffWords.push(words2[j]);
+        }
+
+        return diffWords.join(' ');
+    }    
+
     document.addEventListener('DOMContentLoaded', function() {
         // Utilizza le variabili globali definite in config.js
         document.title = config.titoloPagina1;
@@ -179,7 +199,6 @@
                         <li><a href="/page4.html" id="menuTitolo4"></a></li>
                         <li><a href="/page5.html" id="menuTitolo5"></a></li>
                     </ul>
-
                 </div>
             </nav>
             <style>
@@ -270,7 +289,17 @@
                 if (Object.prototype.toString.call(message) === '[object Array]') {
                     for (var i = 0; i < message.length; i++) {
                         var dataPoint = message[i];
-                        myChart.data.labels[i] = dataPoint.timestamp;
+                        // rimuove le parole uguali
+                        // "DOM 23/11/2023 13:00";
+                        // "DOM 23/11/2023 14:00";
+                        // restituisce 14:00
+                        if (i > 0) {
+                            prev = message[i-1];
+                            etichetta = getDifferentPart(prev.timestamp,dataPoint.timestamp)
+                            myChart.data.labels[i] = etichetta;
+                        } else {
+                            myChart.data.labels[i] = dataPoint.timestamp;
+                        }
                         myChart.data.datasets[0].data[i] = dataPoint.activeEnergy;
                         myChart.data.datasets[1].data[i] = dataPoint.reactiveEnergy;
                     }

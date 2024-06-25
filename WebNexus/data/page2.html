@@ -17,12 +17,12 @@
             shades = yellowShades ;
         }
 
-        if (value <= 500) return shades[0];
-        if (value <= 1000) return shades[1];
-        if (value <= 2000) return shades[2];
-        if (value <= 3000) return shades[3];
-        if (value <= 3600) return shades[4];
-        if (value <= 4000) return shades[5];
+        if (value <= 4*500) return shades[0];
+        if (value <= 4*1000) return shades[1];
+        if (value <= 4*2000) return shades[2];
+        if (value <= 4*3000) return shades[3];
+        if (value <= 4*3600) return shades[4];
+        if (value <= 4*4000) return shades[5];
         return shades[6];
     }
 
