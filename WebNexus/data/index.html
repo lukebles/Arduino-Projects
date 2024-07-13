@@ -98,6 +98,12 @@
         return sum / data.length;
     }
 
+    // function playBell() {
+    //         const audio = new Audio('/campanella.mp3');
+    //         //audio.loop = true; // Ripete l'audio in loop
+    //         audio.play();
+    //     }    
+
     function drawAverageLines(chart, averages, totalAverage) {
         var ctx = chart.chart.ctx;
         var chartArea = chart.chartArea;
@@ -275,6 +281,11 @@
                     myChart.data.labels.push(message.timestamp + " (" + message.timeDiff + "ms)");
                     myChart.data.datasets[0].data.push(message.activePower);
                     myChart.data.datasets[1].data.push(message.reactivePower);
+
+                    // //////////////////////////////////////////// DA TESTARE
+                    // if (parseInt(message.activePower,10) >= 1000){
+                    //     playBell();
+                    // }
 
                     // last RX RADIO
                     var lastRadio = document.getElementById('lastRadio');

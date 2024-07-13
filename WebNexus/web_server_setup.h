@@ -15,6 +15,9 @@ void setupWebServer() {
 
     server.serveStatic("/config.js", LittleFS, "/config.js");
 
+    // server.serveStatic("/campanella.mp3", LittleFS, "/campanella.mp3");
+
+
     server.on("/", HTTP_GET, handleRoot);
 
     server.on("/page1.html", HTTP_GET, [](AsyncWebServerRequest *request){

@@ -7,6 +7,11 @@
 #include "time_management.h"
 #include "serial_packet_handler.h"
 
+// la persdonalizzzazione Luca/Marco riguarda
+// - il nome della stazione wifi
+// - il file di configurazione "config.js" nella cartella /data
+
+
 #define SAVE_INTERVAL 28800000 // 8 ore in millisecondi
 unsigned long lastSaveTime = 0;
 

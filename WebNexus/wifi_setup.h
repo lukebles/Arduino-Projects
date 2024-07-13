@@ -3,7 +3,7 @@
 
 #include <ESP8266WiFi.h>
 
-const char* ssid = "sid2"; // sid3 Marco sid2 Luca
+const char* ssid = "sid3"; // sid3 Marco sid2 Luca
 const char* password = "pw12345678";
 
 int findBestChannel(int numNetworks) {

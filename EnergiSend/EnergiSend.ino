@@ -73,7 +73,7 @@ const int PTT_PIN = 13;
 const bool PTT_INV = false;
 const int SPEED = 2000;
 
-#define ID_ENERGYSEND 1 // CAMBIARE A SECONDA DEL DISPOSITIVO
+#define ID_ENERGYSEND 11 // 1 LUCA 11 Marco
 
 struct __attribute__((packed)) EnergyData {
     byte sender; // 1 byte
