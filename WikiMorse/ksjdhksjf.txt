@@ -1,6 +1,6 @@
 #include "Morse.h"
 
-Morse morse(0);
+Morse morse(12);
 
 void setup() {
   Serial.begin(9600);
@@ -10,8 +10,8 @@ void loop() {
   morse.update();
 
   if (morse.hasNewChar()) {
-    String morseChar = morse.getChar();
-    if (morseChar.length() > 0) {
+    char morseChar = morse.getChar();
+    if (morseChar != '\0') {
       Serial.println(morseChar);
     }
   }

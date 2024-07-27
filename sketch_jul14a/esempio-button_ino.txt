@@ -1,0 +1,37 @@
+#include "Button.h"
+
+Button button(0);
+
+void setup() {
+  Serial.begin(115200);
+}
+
+void loop() {
+  button.update();
+
+  if (button.stateHasChanged()){
+    Serial.println("Stato cambiato");
+  }
+
+  if (button.wasPressed()) {
+    Serial.print("Button pressed, released duration: ");
+    Serial.println(button.releasedDuration());
+  }
+
+  if (button.wasReleased()) {
+    Serial.print("Button released, pressed duration: ");
+    Serial.println(button.pressedDuration());
+  }
+
+  // if (button.isPressed()) {
+  //   Serial.print("Button is currently pressed for ");
+  //   Serial.print(button.pressedDuration());
+  //   Serial.println(" ms");
+  // }
+
+  // if (button.isReleased()) {
+  //   Serial.print("Button is currently released for ");
+  //   Serial.print(button.releasedDuration());
+  //   Serial.println(" ms");
+  // }
+}
