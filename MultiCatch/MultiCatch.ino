@@ -85,6 +85,9 @@ const int EEPROM_SIZE = 4;
 // void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy);
 // void handleLightData(packet_RadioRxLight& rcvdLight);
 
+LkMultivibrator disabCampana(30*60*1000,MONOSTABLE);
+bool campanaAbilitata = true;
+
 void setup() {
     setupHardware();
     loadPowerLimitValue();
@@ -93,24 +96,34 @@ void setup() {
     flash_segnale_radio.start();
     flash_datetime_not_set.start();
     digitalWrite(LED_PIN, HIGH);
+
+    disabCampana.stop();
 }
 
 void loop() {
-    allarme_segnalatore.loop();
-    if (flash_segnale_radio.expired()) {
-        digitalWrite(LED_PIN, LOW);
-    }
-    if (flash_datetime_not_set.expired()) {
-        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        // Serial.println("Data ora non impostata");
-    }
-    handleRadioReception();
-    if (msgSerialFromWebNexus) {
-        serialRxString[COUNTER] = '\0';
-        checkString();
-        COUNTER = 0;
-        msgSerialFromWebNexus = false;
-    }
+
+  if(disabCampana.expired()){
+    // sono passati i 30 minuti
+    // di disattivazione della campana
+    campanaAbilitata = true;
+  }
+
+  allarme_segnalatore.loop();
+
+  if (flash_segnale_radio.expired()) {
+      digitalWrite(LED_PIN, LOW);
+  }
+  if (flash_datetime_not_set.expired()) {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      // Serial.println("Data ora non impostata");
+  }
+  handleRadioReception();
+  if (msgSerialFromWebNexus) {
+      serialRxString[COUNTER] = '\0';
+      checkString();
+      COUNTER = 0;
+      msgSerialFromWebNexus = false;
+  }
 }
 
 void serialEvent() {
@@ -155,7 +168,11 @@ void loadPowerLimitValue() {
 
 void checkString() {
   Serial.println(serialRxString);
-    if (strncmp(serialRxString, "POWER-LIMIT=", 12) == 0) {
+    if (strcmp(serialRxString, "AUTOmegane") == 0){
+      // disabilita la campana per 30 minuti
+      campanaAbilitata = false;
+      disabCampana.start();
+    } else if (strncmp(serialRxString, "POWER-LIMIT=", 12) == 0) {
         powerLimitValue = atoi(serialRxString + 12);
         saveToEEPROM(powerLimitValue);
         Serial.print("Impostato valore: ");
@@ -163,7 +180,6 @@ void checkString() {
         // Serial.println(powerLimitValue);
     } else if (strcmp(serialRxString, "ALARM-TEST") == 0) {
         allarme_segnalatore.enable(); 
-        // Serial.println("Test Allarme");
     } else if (strcmp(serialRxString, "DATETIME-OK") == 0) {
         // Serial.println()
         flash_datetime_not_set.stop();
@@ -231,7 +247,11 @@ void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy) {
           // poi controlla se la potenza calcolata
           // supera la soglia limite
           if (power > float(powerLimitValue)) {
-            allarme_segnalatore.enable();
+            if (campanaAbilitata){
+              // suona la campana se
+              // è abilitata
+              allarme_segnalatore.enable();
+            }
             Serial.println(power);
             
           }
