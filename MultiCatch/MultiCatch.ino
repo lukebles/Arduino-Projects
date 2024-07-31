@@ -35,7 +35,7 @@ struct __attribute__((packed)) packet_RadioRxLight {
 };
 
 // Costanti
-const byte ID_ENERGYSEND = 11; //1 Luca 11 Marco
+const byte ID_ENERGYSEND = 1; //1 Luca 11 Marco
 const byte ID_LIGHTSEND = 2;
 const int LED_PIN = 13;
 const int RX_PIN = 11;
@@ -55,11 +55,11 @@ LkRadioStructure<packet_RadioRxEnergy> radio;
 // =======================================================
 // LUCA
 // nessuna frequenza sul pin, 3 colpi di suoneria
-// LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, true);
+LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, true);
 //
 // MARCO
 // 3 kHz sul pin SEGNALATORE_ACUSTICO_PIN, non invertito, con 5 colpi di suoneria
-LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, false, 4, true, 3000); 
+// LkBlinker allarme_segnalatore(SEGNALATORE_ACUSTICO_PIN, false, 4, true, 3000); 
 // =======================================================
 
 LkMultivibrator flash_segnale_radio(30, MONOSTABLE);

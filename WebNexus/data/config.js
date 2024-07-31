@@ -18,6 +18,6 @@ const config = {
     menuTitolo3: 'menu3',
     menuTitolo4: 'menu4',
     menuTitolo5: 'Impostazioni',
-    etichettaPotenzaAttiva: 'Erogata dalla rete',
-    etichettaPotenzaReattiva: 'Erogata dai pannelli solari'
+    etichettaPotenzaAttiva: 'Attiva',
+    etichettaPotenzaReattiva: 'Reattiva'
 };
