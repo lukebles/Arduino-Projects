@@ -6,6 +6,13 @@
 #include "data_handling.h"
 #include "time_management.h"
 #include "serial_packet_handler.h"
+#include <LkMultivibrator.h>
+
+// ho necessità di sapere se l'ultimo dato che riguarda la potenza 
+// istantanea che ho in memoria è ancora valida oppure no
+// Se sono passati più di 27 secondi dall'ultima ricezione del segnale
+// radio significa che l'ultimo dato ricevuto non è più affidabile
+LkMultivibrator radioCheck(27000,MONOSTABLE);
 
 // la persdonalizzzazione Luca/Marco riguarda
 // - il nome della stazione wifi
@@ -117,13 +124,27 @@ void setup() {
 void loop() {
     webSocket.loop();
 
+    // se sono passati più di 27 secondi dall'ultima ricezione
+    // radio, l'ultimo dato in memoria riguardante la potenza
+    // istantanea non è più affidabile
+    if(radioCheck.expired()){
+      setAffidabilitaDato(false);
+    }
+
     if ((millis() - lastSaveTime > SAVE_INTERVAL)) {
         saveData();
         lastSaveTime = millis();
     }    
 
     if (serialdatapacket_ready()) {
-        digitalWrite(LED_BUILTIN,HIGH);
+
+        // tiene aggiornato il fatto che l'ultima
+        // potenxa letta sia effettivamente un dato aggiornato
+        // oppure no
+        setAffidabilitaDato(true);
+        radioCheck.start();
+
+        
         // riceve il pacchetto
         DataPacket packet = read_serialdatapacket();
         // === riempie i dati orari ===
@@ -135,6 +156,6 @@ void loop() {
         fillTable_istant(packet.activeDiff,packet.reactiveDiff, packet.timeDiff);
         //
         notifyClients();
-        digitalWrite(LED_BUILTIN,LOW);
+        
     }
 }

@@ -227,6 +227,9 @@ void fillTable_istant(uint16_t diff_a, uint16_t diff_r, unsigned long timediff) 
       // Ripristina l'ultimo indice per consentire l'inserimento del nuovo valore
       idxIstantTable = MAX_DATA_POINTS - 1;
   }
+
+  // imposta la potenza anche per l'unità "megane" che 
+  setPotenza(activePower);
 }
 
 
@@ -260,6 +263,7 @@ void fillTable_hours(uint16_t diff_a, uint16_t diff_r) {
 
     idxHourTable++;
     hoursPoints[idxHourTable] = {cnow, diff_a, diff_r};
+
 }
 
 void sendClient_hours(uint8_t num) {

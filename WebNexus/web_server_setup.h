@@ -5,9 +5,20 @@
 #include <LittleFS.h>
 
 extern AsyncWebServer server;
+bool ultimoDatoRadioAffidabile = true;
+int potenza = 0;
 
 void handleRoot(AsyncWebServerRequest *request) {
     request->send(LittleFS, "/index.html", "text/html");
+}
+
+
+void setAffidabilitaDato(bool value){
+  ultimoDatoRadioAffidabile=value;
+}
+
+void setPotenza (int value){
+  potenza=value;
 }
 
 void setupWebServer() {
@@ -17,6 +28,12 @@ void setupWebServer() {
 
     // server.serveStatic("/campanella.mp3", LittleFS, "/campanella.mp3");
 
+    server.on("/megane.html", HTTP_GET, [](AsyncWebServerRequest *request){
+      String responseText = String(potenza) + "-" + String(ultimoDatoRadioAffidabile);
+      
+      // Invia la risposta
+      request->send(200, "text/plain", responseText);
+    });
 
     server.on("/", HTTP_GET, handleRoot);
 
