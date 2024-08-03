@@ -33,6 +33,7 @@ void setupWebServer() {
       
       // Invia la risposta
       request->send(200, "text/plain", responseText);
+      Serial.println("AUTOmegane"); // invio comando a MultiCatch
     });
 
     server.on("/", HTTP_GET, handleRoot);

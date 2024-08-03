@@ -85,7 +85,7 @@ const int EEPROM_SIZE = 4;
 // void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy);
 // void handleLightData(packet_RadioRxLight& rcvdLight);
 
-LkMultivibrator disabCampana(30*60*1000,MONOSTABLE);
+LkMultivibrator disabCampana(5*60*1000,MONOSTABLE);
 bool campanaAbilitata = true;
 
 void setup() {
