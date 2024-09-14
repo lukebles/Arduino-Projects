@@ -85,6 +85,7 @@ const int EEPROM_SIZE = 4;
 // void handleEnergyData(packet_RadioRxEnergy& rcvdEnergy);
 // void handleLightData(packet_RadioRxLight& rcvdLight);
 
+// disabilita l'allarme per 5 minuti (dall'ultima ricezione di "MEGANE" )
 LkMultivibrator disabCampana(5*60*1000,MONOSTABLE);
 bool campanaAbilitata = true;
 
@@ -103,7 +104,7 @@ void setup() {
 void loop() {
 
   if(disabCampana.expired()){
-    // sono passati i 30 minuti
+    // sono passati i 5 minuti
     // di disattivazione della campana
     campanaAbilitata = true;
   }

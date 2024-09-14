@@ -38,12 +38,36 @@ class LkBlinker {
     }
 
   public:
+
+public:
+
+    // // Costruttore semplificato (senza vibrating e frequency)
+    // LkBlinker(int pin, bool inverted)
+    //   : LkBlinker(pin, inverted, 3, false, 3000) {
+    //     // Delegazione al costruttore principale con valori di default
+    // }
+
+    // // Costruttore completo con parametri opzionali
+    // LkBlinker(int pin, bool inverted, int maxBlinkCount, bool vibrating = false, int frequency = 3000)
+    //   : _pin(pin), _inverted(inverted), _maxBlinkCount(maxBlinkCount), _vibrating(vibrating), _frequency(frequency),
+    //     _blinkOnTimer(500, MONOSTABLE), _blinkOffTimer(500, MONOSTABLE) 
+    // {
+    //   pinMode(_pin, OUTPUT);
+    //   setLedState(false);
+    // }
+
+    void begin() {
+      pinMode(_pin, OUTPUT);
+      setLedState(false);
+    }
+
+
     // Costruttore con parametri
     LkBlinker(int pin, bool inverted, int maxBlinkCount = 3, bool vibrating = false, int frequency = 3000)
       : _pin(pin), _inverted(inverted), _maxBlinkCount(maxBlinkCount), _vibrating(vibrating), _frequency(frequency), 
         _blinkOnTimer(500, MONOSTABLE), _blinkOffTimer(500, MONOSTABLE) {
-      pinMode(_pin, OUTPUT);
-      setLedState(false);
+      // pinMode(_pin, OUTPUT);
+      // setLedState(false);
     }
 
     void loop() {

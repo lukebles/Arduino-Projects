@@ -26,12 +26,19 @@ void setupWebServer() {
 
     server.serveStatic("/config.js", LittleFS, "/config.js");
 
-    // server.serveStatic("/campanella.mp3", LittleFS, "/campanella.mp3");
-
+    // risposta per la pagina che consulta periodicamente
+    // la presa di corrente a cui è collegata l'auto Megane
     server.on("/megane.html", HTTP_GET, [](AsyncWebServerRequest *request){
+      // invia la stringa di risposta alla presa contenente la
+      // potenza istantanea erogata attualmente dall'impianto
+      // e se il dato che sta ricevendo è un dato valido
+      // (in sostanza se il segnale radio proveniente dal contatore
+      // dei lampeggi è recente)
       String responseText = String(potenza) + "-" + String(ultimoDatoRadioAffidabile);
       
-      // Invia la risposta
+      // Invia a multicatch sulla seriale un comando che
+      // serve ad informare di disabilitare temporaneamente 
+      // la campana
       request->send(200, "text/plain", responseText);
       Serial.println("AUTOmegane"); // invio comando a MultiCatch
     });

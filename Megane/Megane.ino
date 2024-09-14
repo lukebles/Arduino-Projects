@@ -109,6 +109,8 @@ void handlePayload(String payload) {
     int power = powerStr.toInt();
     int valid = validStr.toInt();
 
+    Serial.println(power);
+
     if (digitalRead(pinRele)){
       // se il rele è acceso 
       if (power > 3600){
@@ -122,7 +124,9 @@ void handlePayload(String payload) {
     if (power < 1100 && valid == 1) {
       digitalWrite(pinRele, HIGH); // Turn RELE on
     } else {
-      digitalWrite(pinRele, LOW); // Turn RELE off
+      if (valid != 1){
+        digitalWrite(pinRele, LOW); // Turn RELE off
+      }
     }
   }
 }

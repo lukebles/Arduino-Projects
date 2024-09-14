@@ -16,6 +16,9 @@
  * after extended periods of operation.
  */
 
+#ifndef LK_MULTIVIBRATOR_H  
+#define LK_MULTIVIBRATOR_H 
+
 enum MultivibratorType { ASTABLE, MONOSTABLE };
 
 class LkMultivibrator {
@@ -63,3 +66,5 @@ public:
         return false;
     }
 };
+
+#endif // LK_MULTIVIBRATOR_H

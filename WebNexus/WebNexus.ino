@@ -71,14 +71,6 @@ void setup() {
         return;
     }
 
-// Controllo dello spazio disponibile
-    // FSInfo fs_info;
-    // LittleFS.info(fs_info);
-    // Serial.print("Total space: ");
-    // Serial.println(fs_info.totalBytes);
-    // Serial.print("Used space: ");
-    // Serial.println(fs_info.usedBytes);
-    
     //////////////////// CARICA I DATI SALVATI //////////////////
     EEPROM.begin(EEPROM_SIZE); 
     
@@ -89,8 +81,7 @@ void setup() {
         EEPROM.write(0 + 1, (powLimit >> 8) & 0xFF);
         EEPROM.commit(); 
     }
-    // Serial.print("riavvio: ");
-    // Serial.println(powLimit);
+
     setPowerLimitValue(powLimit); // lo salva per la parte HTML
 
     loadData();
@@ -100,25 +91,10 @@ void setup() {
     time_t t = istantPoints[MAX_DATA_POINTS-1].timestamp;
     setTime(t);
 
-    //////////// CARICA I VALORI DI CONFIGURAZIONE //////////////
-    // Inizializza alcuni valori di configurazione
-    // strcpy(configuraz[0].key, "WiFiSSID");
-    // strcpy(configuraz[0].value, "YourSSID");
-    // strcpy(configuraz[1].key, "WiFiPassword");
-    // strcpy(configuraz[1].value, "YourPassword");
-
-    // // Salva la configurazione
-    // saveConfig();
-
-    // // Carica la configurazione
-    // loadConfig();
-
     setupWiFi();
     setupWebServer();
     setupWebSocket();
 
-    //initializeDataPoints();
-    //setSystemTime(2000, 1, 1, 0, 0, 0);
 }
 
 void loop() {
@@ -143,12 +119,10 @@ void loop() {
         // oppure no
         setAffidabilitaDato(true);
         radioCheck.start();
-
         
         // riceve il pacchetto
         DataPacket packet = read_serialdatapacket();
         // === riempie i dati orari ===
-        //Serial.println(packet.activeDiff);
         fillTable_hours(packet.activeDiff,packet.reactiveDiff);
         // == riempie i dati giornalieri ==
         fillTable_days(packet.activeDiff,packet.reactiveDiff);

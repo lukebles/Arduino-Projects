@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP01S WebSocket</title>
+  <script>
+    var webSocket;
+
+    function startWebSocket() {
+      webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
+
+      webSocket.onmessage = function(event) {
+        var msg = event.data + "<br>";
+        document.getElementById('radioData').innerText += msg; // Appendi nuovi dati ricevuti
+      };
+    }
+
+    window.onload = function() {
+      startWebSocket();
+    };
+  </script>
+</head>
+<body>
+  <h1>Dati Ricevuti:</h1>
+  <pre id="radioData"></pre>
+</body>
+</html>
