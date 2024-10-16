@@ -1,3 +1,18 @@
+/*
+Compilare su ESP01s usando l'opzione FLASH SIZE 1M - FS: 256KB - OTA 374KB)
+per installare il filesystem usare Upload Little FS tramite SHIFT-CMD-P
+*/
+
+// 04/10/2024 - INTERROTTO LO SVILUPPO
+// Motivazione: la funzione WebSocket.loop() provoca la perdita occasionale di pacchetti radio,
+// rendendo instabile la ricezione. A causa di questo problema, ho deciso di continuare 
+// lo sviluppo separato di WebNexus e MultiCatch.
+//
+// Nota: il progetto attuale è comunque funzionante, ma richiede ottimizzazioni nella parte 
+// relativa a data_handling.h, dove vengono utilizzate le stringhe. Ogni tanto, 
+// circa ogni due settimane, il sistema si blocca, probabilmente a causa di problemi nella gestione delle stringhe.
+
+
 #include <Arduino.h>
 #include <LittleFS.h>
 #include "wifi_setup.h"
@@ -94,7 +109,7 @@ void setup() {
     // il ricevutore ESP01 con VirtualWireEx necessita di adattamento
     // 1990 limite estremo basso / 2005 estremo alto 
     // media 1997
-    radio.globalSetup(1997, TX_PIN, RX_PIN);
+    radio.globalSetup(2000, TX_PIN, RX_PIN);
     //
     timer_flashSegnaleRadio.start();
     timer_flashDatetimeNotSet.start();
