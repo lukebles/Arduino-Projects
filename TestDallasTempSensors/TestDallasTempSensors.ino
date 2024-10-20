@@ -18,7 +18,7 @@ float maxTemperature;
 void setup(void)
 {
   // Start serial communication
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("Dallas Temperature IC Control Library Demo");
 
   // Start up the library

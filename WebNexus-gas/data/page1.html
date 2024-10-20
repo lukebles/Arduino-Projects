@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="titoloPagina1"></title>
+    <script src="/Chart.min.js"></script>
+    <script src="config.js"></script> 
+    <script>
+
+    function getBarColor(datasetIndex, value) {
+        // Sfumature di rosso (evitando il rosso puro RGB 100) e marrone
+        var redShades = ['#F1948A', '#EC7063', '#E74C3C', '#CB4335', '#B03A2E', '#943126', '#78281F'];
+        var grayShades = ['#F2F3F4', '#E5E7E9', '#D7DBDD', '#CACFD2', '#BDC3C7', '#A6ACAF', '#909497'];
+
+        var shades;
+        if (datasetIndex === 0) {
+            shades = grayShades;
+        } else {
+            shades = redShades;
+        }
+
+        if (value <= 500) return shades[0];
+        if (value <= 1000) return shades[1];
+        if (value <= 2000) return shades[2];
+        if (value <= 3000) return shades[3];
+        if (value <= 3600) return shades[4];
+        if (value <= 4000) return shades[5];
+        return shades[6];
+    }
+
+
+    function updateChartColors(chart) {
+        for (var i = 0; i < chart.data.datasets.length; i++) {
+            var dataset = chart.data.datasets[i];
+            dataset.backgroundColor = [];
+            for (var j = 0; j < dataset.data.length; j++) {
+                var value = dataset.data[j];
+                dataset.backgroundColor[j] = getBarColor(i, value);
+            }
+        }
+    }
+
+    // Polyfill per Array.prototype.fill
+    if (!Array.prototype.fill) {
+        Object.defineProperty(Array.prototype, 'fill', {
+            value: function(value) {
+                if (this == null) {
+                    throw new TypeError('this is null or not defined');
+                }
+                var O = Object(this);
+                var len = O.length >>> 0;
+                var start = arguments[1];
+                var relativeStart = start >> 0;
+                var k = relativeStart < 0 ? Math.max(len + relativeStart, 0) : Math.min(relativeStart, len);
+                var end = arguments[2];
+                var relativeEnd = end === undefined ? len : end >> 0;
+                var final = relativeEnd < 0 ? Math.max(len + relativeEnd, 0) : Math.min(relativeEnd, len);
+                while (k < final) {
+                    O[k] = value;
+                    k++;
+                }
+                return O;
+            }
+        });
+    }
+
+    // Polyfill per Array.prototype.forEach
+    if (!Array.prototype.forEach) {
+        Array.prototype.forEach = function(callback, thisArg) {
+            var T, k;
+            if (this == null) {
+                throw new TypeError('this is null or not defined');
+            }
+            var O = Object(this);
+            var len = O.length >>> 0;
+            if (typeof callback !== 'function') {
+                throw new TypeError(callback + ' is not a function');
+            }
+            if (arguments.length > 1) {
+                T = thisArg;
+            }
+            k = 0;
+            while (k < len) {
+                var kValue;
+                if (k in O) {
+                    kValue = O[k];
+                    callback.call(T, kValue, k, O);
+                }
+                k++;
+            }
+        };
+    }
+
+    function calculateAverage(data) {
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) {
+            sum += data[i];
+        }
+        return sum / data.length;
+    }
+
+    function drawAverageLines(chart, averages, totalAverage) {
+        var ctx = chart.chart.ctx;
+        var chartArea = chart.chartArea;
+        var yScale = chart.scales['y-axis-0'];
+
+        // Disegna linee di media per ogni dataset
+        for (var i = 0; i < averages.length; i++) {
+            var yValue = yScale.getPixelForValue(averages[i]);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, yValue);
+            ctx.lineTo(chartArea.right, yValue);
+            ctx.strokeStyle = chart.data.datasets[i].borderColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Disegna la linea di media totale
+        var yTotalValue = yScale.getPixelForValue(totalAverage);
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, yTotalValue);
+        ctx.lineTo(chartArea.right, yTotalValue);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';  // Colore per la media totale
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);  // Linea tratteggiata per la media totale
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    Chart.plugins.register({
+        afterDraw: function(chart) {
+            var averages = [];
+            for (var i = 0; i < chart.data.datasets.length; i++) {
+                averages.push(calculateAverage(chart.data.datasets[i].data));
+            }
+
+            // Calcola la media totale della somma dei valori delle colonne
+            var totalSumData = [];
+            for (var j = 0; j < chart.data.labels.length; j++) {
+                var totalSum = 0;
+                for (var k = 0; k < chart.data.datasets.length; k++) {
+                    totalSum += chart.data.datasets[k].data[j];
+                }
+                totalSumData.push(totalSum);
+            }
+            var totalAverage = calculateAverage(totalSumData);
+
+            drawAverageLines(chart, averages, totalAverage);
+        }
+    });
+
+    function getDifferentPart(str1, str2) {
+        var words1 = str1.split(' ');
+        var words2 = str2.split(' ');
+        var minLength = Math.min(words1.length, words2.length);
+        var diffWords = [];
+
+        for (var i = 0; i < minLength; i++) {
+            if (words1[i] !== words2[i]) {
+                diffWords.push(words2[i]);
+            }
+        }
+
+        // Aggiungi le parole rimanenti della seconda stringa se sono più lunghe
+        for (var j = minLength; j < words2.length; j++) {
+            diffWords.push(words2[j]);
+        }
+
+        return diffWords.join(' ');
+    }    
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Utilizza le variabili globali definite in config.js
+        document.title = config.titoloPagina1;
+        document.querySelector('#descrizione').textContent = config.descrizione1;
+        document.querySelector('#menuHome').textContent = config.menuHome;
+        document.querySelector('#menuTitolo1').textContent = config.menuTitolo1;
+        document.querySelector('#menuTitolo2').textContent = config.menuTitolo2;
+        document.querySelector('#menuTitolo3').textContent = config.menuTitolo3;
+        document.querySelector('#menuTitolo4').textContent = config.menuTitolo4;
+        document.querySelector('#menuTitolo5').textContent = config.menuTitolo5;
+    });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <!-- Include nav.html content -->
+            <nav class="row">
+                <div class="twelve columns">
+                    <ul class="nav-list">
+                        <li><a href="/" id="menuHome"></a></li>
+                        <li><a href="/page1.html" id="menuTitolo1"></a></li>
+                        <li><a href="/page2.html" id="menuTitolo2"></a></li>
+                        <li><a href="/page3.html" id="menuTitolo3"></a></li>
+                        <li><a href="/page4.html" id="menuTitolo4"></a></li>
+                        <li><a href="/page5.html" id="menuTitolo5"></a></li>
+                    </ul>
+                </div>
+            </nav>
+            <style>
+                .nav-list {
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                    display: flex;
+                    justify-content: space-around;
+                    background-color: #333;
+                }
+                .nav-list li {
+                    display: inline;
+                }
+                .nav-list li a {
+                    display: block;
+                    color: white;
+                    text-align: center;
+                    padding: 14px 16px;
+                    text-decoration: none;
+                }
+                .nav-list li a:hover {
+                    background-color: #111;
+                }
+            </style>
+        </header>
+        <main>
+
+            <p id="descrizione"></p>
+            <p id="lastRadio" background-color: lightgrey;></p>
+            <canvas id="myChart" width="400" height="200"></canvas>
+            <script>
+            var ctx = document.getElementById('myChart').getContext('2d');
+            var data = {
+                labels: new Array(31).fill(''),
+                datasets: [
+                    {
+                        label: config.etichettaPotenzaAttiva,
+                        backgroundColor: '#F2F3F4',
+                        borderColor: '#909497', // grigio 
+                        borderWidth: 1,
+                        data: new Array(31).fill(0)
+                    },
+                    {
+                        label: config.etichettaPotenzaReattiva,
+                        backgroundColor: '#F1948A',
+                        borderColor: '#78281F', // giallo
+                        borderWidth: 1,
+                        data: new Array(31).fill(0)
+                    },
+                ]
+            };
+
+            var configChart = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    scales: {
+                        xAxes: [{
+                            stacked: true
+                        }],
+                        yAxes: [{
+                            stacked: true,
+                            // ticks: {
+                            //     min: 0,
+                            //     max: 6000
+                            // }
+                        }]
+                    }
+                }
+            };
+
+            //////////////////////
+
+            var myChart = new Chart(ctx, configChart);
+
+            var websocket = new WebSocket('ws://' + location.hostname + ':81/');
+
+            websocket.onopen = function() {
+                console.log('WebSocket connection established');
+                websocket.send('getHourEnergy');
+            };
+
+            websocket.onmessage = function(event) {
+                var message = JSON.parse(event.data);
+
+                if (Object.prototype.toString.call(message) === '[object Array]') {
+                    for (var i = 0; i < message.length; i++) {
+                        var dataPoint = message[i];
+                        // rimuove le parole uguali
+                        // "DOM 23/11/2023 13:00";
+                        // "DOM 23/11/2023 14:00";
+                        // restituisce 14:00
+                        if (i > 0) {
+                            prev = message[i-1];
+                            etichetta = getDifferentPart(prev.timestamp,dataPoint.timestamp)
+                            myChart.data.labels[i] = etichetta;
+                        } else {
+                            myChart.data.labels[i] = dataPoint.timestamp;
+                        }
+                        myChart.data.datasets[0].data[i] = dataPoint.activeEnergy;
+                        myChart.data.datasets[1].data[i] = dataPoint.reactiveEnergy;
+                    }
+                } else {
+                    // last RX RADIO
+                    var lastRadio = document.getElementById('lastRadio');
+                    lastRadio.innerText = message.timestampLong;
+
+                }
+
+                updateChartColors(myChart);
+                myChart.update();
+            };            
+
+            websocket.onclose = function() {
+                console.log('WebSocket connection closed');
+            };
+            </script>
+        </main>
+    </div>
+</body>
+</html>
