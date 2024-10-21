@@ -21,8 +21,8 @@ LkMultivibrator timerVariazioni(20000,MONOSTABLE);
 
 #define SANITARIA_calda 0
 #define SANITARIA_fredda 4
-#define TERMO_calda 2
-#define TERMO_fredda 3
+#define TERMO_calda 3
+#define TERMO_fredda 2
 #define AMBIENTE 1
 
 #define T_SALE 2
