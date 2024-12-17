@@ -100,13 +100,12 @@ struct Previous {
   }
 };
 
-
 // differenza tra due contatori
 // per definire il conteggio "sensato"
-#define MAX_DIFFERENCE 99 
-#define MAX_TIME_DIFFERENCE_MS 300000
+#define MAX_DIFFERENCE 99 // differenza tra due conteggi
+#define MAX_TIME_DIFFERENCE_MS 300000 // 300 secondi tra una trasmissione e l'altra
 
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG
 #define prt(x) Serial.print(x)
@@ -273,7 +272,7 @@ void handleRadioReception() {
           // invio a webnexus
           // il messaggio è anticipato da un ID equivalente al sender
           // ricevuto via radio
-          write2webnexus(sender, 1);
+          write2webnexus(sender, 1); // manda l'identificativo come primo pacchetto
           write2webnexus((uint8_t*)&packet_2_wnx, sizeof(packet_2_wnx));
           prt("\t");
           prt("Valori inviati a webnexus (diffA, diffB, diffTime(ms)): ");
@@ -282,6 +281,7 @@ void handleRadioReception() {
           prt(packet_2_wnx.diffB);
           prt("\t");
           prtn(packet_2_wnx.diffTime);
+          //=== valido solo per energia elettrica ===
           if (sender == ID_ENERGYSEND){
             // controllo potenza ricevuta se supera il limite
             float power = (diffA * 3600.0) / (diffTime / 1000.0);

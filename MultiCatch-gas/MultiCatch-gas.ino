@@ -10,7 +10,7 @@
 // - ID_ENERGYSEND
 // - allarme_segnalatore
 //////////////////////////////////////////////
-
+// ***** VERSIONE TEMPORANEA ******
 
 #include <LkRadioStructure.h>
 #include <LkBlinker.h>

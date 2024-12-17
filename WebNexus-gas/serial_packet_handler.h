@@ -9,7 +9,7 @@ struct __attribute__((packed)) DataPacket {
 
 bool serialdatapacket_ready() {
     if (Serial.available()) {
-        if (Serial.peek() == 0xFF) { // Controlla il byte di sincronizzazione senza consumarlo
+        if (Serial.peek() == 99) { // Controlla il byte di sincronizzazione senza consumarlo
             Serial.read(); // Consuma il byte di sincronizzazione
             
             unsigned long startTime = millis();

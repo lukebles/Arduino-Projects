@@ -137,24 +137,25 @@ void loop() {
 	      attualeTemp[i] = sensors.getTempCByIndex(i);
         prtn(attualeTemp[i]);
 	    }
-	    // ==============================
+	  // ==============================
 		// temperature in salita/discesa?
 		getStatus(SANITARIA_calda);
 		getStatus(TERMO_calda);
-	    // =====================================
-		// cacolo differenze tra CALDA e FREDDA
-		float diffSanitaria  = attualeTemp[SANITARIA_calda] - attualeTemp[SANITARIA_fredda];
-		float diffTermo = attualeTemp[TERMO_calda] - attualeTemp[TERMO_fredda];
-    // solo valori positivi o zero (deve sempre essere:   calda >= fredda)
-    diffSanitaria = noNegativi(diffSanitaria);
-    diffTermo = noNegativi(diffTermo);
-		// incrementa il contatore
-		contatoreDiffTempSanitaria += diffSanitaria;
-		contatoreDiffTempTermo += diffTermo;
-		// impedisce che venga superato il valore float 65535.0
-		contatoreDiffTempSanitaria = chkFloat(contatoreDiffTempSanitaria);
-		contatoreDiffTempTermo = chkFloat(contatoreDiffTempTermo);
-	    // ===========================
+    // i contatori vengono incrementati
+    // delle differenza di temperatura solo se la 
+    // temperatura sale
+    if (stato[SANITARIA_calda] == T_SALE){
+  		float diffSanitaria  = attualeTemp[SANITARIA_calda] - attualeTemp[SANITARIA_fredda];
+      diffSanitaria = noNegativi(diffSanitaria);
+  		contatoreDiffTempSanitaria += diffSanitaria;
+  		contatoreDiffTempSanitaria = chkFloat(contatoreDiffTempSanitaria);
+    }
+    if (stato[TERMO_calda] == T_SALE){
+      float diffTermo = attualeTemp[TERMO_calda] - attualeTemp[TERMO_fredda];
+      diffTermo = noNegativi(diffTermo);
+      contatoreDiffTempTermo += diffTermo;
+      contatoreDiffTempTermo = chkFloat(contatoreDiffTempTermo);
+    }
 		// riempimento dati da inviare
 		ds_contatori.sanitariaCount = (int16_t)round(contatoreDiffTempSanitaria);
 		ds_contatori.termoCount = (int16_t)round(contatoreDiffTempTermo);		
@@ -225,7 +226,7 @@ void getStatus(byte indexSensore){
     //float attualeTemp = sensors.getTempCByIndex(indexSensore);
     float diff = previousTemp[indexSensore] - attualeTemp[indexSensore];
     float quantita = fabs(diff);
-    if (quantita > 0.5){
+    if (quantita > 1.0){
     	if (diff >= 0.0){
     		stato[indexSensore] = T_SCENDE;
 		    previousTemp[indexSensore] = attualeTemp[indexSensore];
@@ -235,8 +236,13 @@ void getStatus(byte indexSensore){
 		    previousTemp[indexSensore] = attualeTemp[indexSensore];
     	}
     } else {
-    	// nessun cambiamento
-    	stato[indexSensore] = T_COSTANTE;
+    	// nessun cambiamento: rimane lo stato precedente
+      // ( non passiamo ma a "temperatura costante" ma solo "SCENDE" o "SALE")
+    	stato[indexSensore] = previousTemp[indexSensore];
+      // non aggiorno "previous" con "attuale"
+      // perchè altrimenti non avverrebbe mai nessun cambiamento
+      // (tra una lettura e l'altra non avremmo quasi mai
+      // una differenza di temperatura di 1°C)
     }
 }
 

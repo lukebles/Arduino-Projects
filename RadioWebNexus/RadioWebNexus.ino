@@ -14,25 +14,16 @@ per installare il filesystem usare Upload Little FS tramite SHIFT-CMD-P
 
 
 #include <Arduino.h>
-#include <LittleFS.h>
-#include "wifi_setup.h"
-#include "web_server_setup.h"
-#include "websocket_handler.h"
-#include "data_handling.h"
-#include "time_management.h"
-#include "serial_packet_handler.h"
+
 //======
 #include <LkRadioStructureEx.h>
-#include <LkBlinker.h>
-#include <EEPROM.h>
+
 //
 // ********************************************
 // ============== codice per ESP01 ============
 // ********************************************
 //
-// la EEPROM contiene la potenza-limite che fa scattare 
-// l'allarma (badenia tramite relè (Luca) oppure capsula piezo (Marco))
-const int EEPROM_SIZE = 4;
+
 const byte ID_ENERGYSEND = 1; //1 Luca 11 Marco
 const int LED_PIN = 2; // GPIO2 per ESP01
 const int RX_PIN = 0; // GPIO0 dove è collegato il modulo radio RX

@@ -22,6 +22,18 @@ bool releSiPuoAccendere = true;
 
 bool statoPrecedente = LOW;
 
+// ===============
+#define DEBUG 0
+// ===============
+#if DEBUG
+#define prt(x) Serial.print(x)
+#define prtn(x) Serial.println(x)
+#else
+#define prt(x)
+#define prtn(x)
+#endif
+
+
 void setup() {
   Serial.begin(115200);
   delay(10);
@@ -64,20 +76,20 @@ void loop() {
 }
 
 void connectToWiFi() {
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  prt("Connecting to ");
+  prtn(ssid);
   
   WiFi.begin(ssid, password);
   
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    prt(".");
   }
   
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  prtn("");
+  prtn("WiFi connected");
+  prtn("IP address: ");
+  prtn(WiFi.localIP());
 }
 
 void processWebData() {
@@ -89,11 +101,11 @@ void processWebData() {
   
   if (httpCode > 0) {
     String payload = http.getString();
-    Serial.println("HTTP Response:");
-    Serial.println(payload);
+    prtn("HTTP Response:");
+    prtn(payload);
     handlePayload(payload);
   } else {
-    Serial.println("Error on HTTP request");
+    prtn("Error on HTTP request");
   }
   
   http.end();
@@ -108,7 +120,7 @@ void handlePayload(String payload) {
     
     int power = powerStr.toInt();
     int valid = validStr.toInt();
-
+    // stampa su display esterno (seriale altrimenti)
     Serial.println(power);
 
     if (digitalRead(pinRele)){
