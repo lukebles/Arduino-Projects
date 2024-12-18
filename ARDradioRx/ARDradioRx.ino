@@ -1,7 +1,16 @@
-#include <LkRadioStructureEx.h>
+#include <LkRadioStructure.h>
+// include the library code:
+#include <LiquidCrystal.h>
 
-const int LED_PIN = 2;
-const int RECEIVE_PIN = 0;
+// initialize the library by associating any needed LCD interface pin
+// with the arduino pin number it is connected to
+const int rs = 8, en = 10, d4 = 7, d5 = 6, d6 = 5, d7 = 4;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+const int pin_pushb1 = 2;
+
+const int LED_PIN = 13;
+const int RECEIVE_PIN = 11;
 
 struct __attribute__((packed)) StructureA {
   byte sender;   // 1 byte
@@ -20,7 +29,7 @@ struct __attribute__((packed)) StructureC {
   uint16_t valueE;
 };
 
-LkRadioStructureEx<StructureA> radio; // necessario per radio
+LkRadioStructure<StructureA> radio; // necessario per radio
 
 #define DEBUG 0
 
@@ -42,6 +51,7 @@ int i_EsternaUmidita = 99;
 
 
 void setup() {
+  pinMode(pin_pushb1, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
   Serial.begin(115200);
@@ -55,9 +65,15 @@ void setup() {
   digitalWrite(LED_PIN, HIGH);
 
   radio.globalSetup(2000, -1, RECEIVE_PIN);  // Solo ricezione
+  lcd.begin(20, 4);
+  // Print a message to the LCD.
+  lcd.setCursor(0, 0);
+  lcd.print("Radio Rx");  
 }
 
 void loop() {
+
+
   if (radio.haveRawMessage()) {
     uint8_t rawBuffer[VW_MAX_MESSAGE_LEN];
     uint8_t rawBufferLen;
@@ -145,19 +161,33 @@ void loop() {
       i_EsternaPress = round(receivedDataA.valueA);
     }
 
-    Serial.print(i_tSanitIn);
-    Serial.print(" ");
-    Serial.print(i_tSanitOut);
-    Serial.print(" ");
-    Serial.print(i_tTermoIn);
-    Serial.print(" ");
-    Serial.print(i_tTermoOut);
-    Serial.print(" ");
-    Serial.print(i_EsternaTemp);
-    Serial.print(" ");
-    Serial.print(i_EsternaUmidita);
-    Serial.print(" ");
-    Serial.println(i_EsternaPress);
+    char outputString[20];
+    snprintf(outputString, sizeof(outputString), "%d %d %d %d %d %d", 
+           i_tSanitIn, i_tSanitOut, i_tTermoIn, i_tTermoOut, 
+           i_EsternaTemp, i_EsternaUmidita);
+
+    lcd.setCursor(0, 0);
+    lcd.print("                    ");  
+    lcd.setCursor(0, 0);
+    lcd.print(outputString);
+
+    lcd.setCursor(0, 1);
+    lcd.print("                    ");  
+    lcd.setCursor(0, 1);
+    lcd.print(i_EsternaPress);
+
+    if (!digitalRead(pin_pushb1)){
+      lcd.setCursor(0, 2);
+      lcd.print("                    ");  
+      lcd.setCursor(0, 2);
+      lcd.print(outputString);
+
+      lcd.setCursor(0, 3);
+      lcd.print("                    ");  
+      lcd.setCursor(0, 3);
+      lcd.print(i_EsternaPress);
+    }
+
 
 
   }
