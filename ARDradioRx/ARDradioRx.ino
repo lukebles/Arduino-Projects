@@ -49,6 +49,23 @@ int i_EsternaTemp = 99;
 int i_EsternaPress = 9999;
 int i_EsternaUmidita = 99;
 
+uint16_t prev_elettrico;
+prev_elettrico = 0;
+bool primoAvvio = true;
+
+String prev_potenza = "";
+String prev_tempEsterna = "";
+String prev_pressEsterna = "";
+String prev_umidEsterna = "";
+String prev_acquaCalda = "";
+String prev_termosifoni = "";
+
+String ora_potenza = "";
+String ora_tempEsterna = "";
+String ora_pressEsterna = "";
+String ora_umidEsterna = "";
+String ora_acquaCalda = "";
+String ora_termosifoni = "";
 
 void setup() {
   pinMode(pin_pushb1, INPUT_PULLUP);
@@ -72,7 +89,6 @@ void setup() {
 }
 
 void loop() {
-
 
   if (radio.haveRawMessage()) {
     uint8_t rawBuffer[VW_MAX_MESSAGE_LEN];
@@ -99,6 +115,19 @@ void loop() {
 
       LkArraylize<StructureC> converterC;
       StructureC receivedDataC = converterC.deArraylize(rawBuffer);
+      
+      if (primoAvvio){
+        prev_elettrico = receivedDataC.valueD;
+        primoAvvio = false;
+      }
+      else {
+        uint16_t diff = receivedDataC.valueD - prev_elettrico
+        if (diff > 12){
+          ora_potenza = String(diff);
+        } else {
+          ora_potenza = "";
+        }
+      }
       prt("Contatore Energia Attiva: ");
       prtn(receivedDataC.valueD);  
       prt("Contatore Energia Reattiva: ");
@@ -119,10 +148,15 @@ void loop() {
       prt("Temp acqua calda Uscita °C: ");
       prtn(tSanitOut);  
       prt("Temp acqua calda Entrata °C: ");
-      prtn(tSanitIn);  
+      prtn(tSanitIn);
       //
       i_tSanitOut = round(tSanitOut); 
       i_tSanitIn = round(tSanitIn); 
+      int i_diff = round(tSanitOut - tSanitIn);
+      //
+      ora_acquaCalda = String(i_tSanitIn) + " " + String(i_tSanitOut) + " (" + String(i_diff) + ")"
+    
+    
     } else if (sender == 101) {
       LkArraylize<StructureB> converterB;
       StructureB receivedDataB = converterB.deArraylize(rawBuffer);
@@ -134,6 +168,9 @@ void loop() {
       prtn(tTermoIn);  
       i_tTermoOut = round(tTermoOut); 
       i_tTermoIn = round(tTermoIn); 
+      int i_diff = round(i_tTermoOut - i_tTermoIn);
+      //
+      ora_termosifoni = String(i_tTermoIn) + " " + String(i_tTermoOut) + " (" + String(i_diff) + ")"      
     } else if (sender == 102) {
       LkArraylize<StructureB> converterB;
       StructureB receivedDataB = converterB.deArraylize(rawBuffer);
@@ -147,18 +184,24 @@ void loop() {
       prt("Temperatura Esterna °C: ");
       prtn(receivedDataA.valueA);  
       i_EsternaTemp = round(receivedDataA.valueA);
+      //
+      ora_tempEsterna = String(i_EsternaTemp);
     } else if (sender == 107) {
       LkArraylize<StructureA> converterA;
       StructureA receivedDataA = converterA.deArraylize(rawBuffer);
       prt("Umidita esterna %: ");
       prtn(receivedDataA.valueA);  
       i_EsternaUmidita = round(receivedDataA.valueA);
+      //
+      ora_umidEsterna = String(i_EsternaUmidita);
     } else if (sender == 108) {
       LkArraylize<StructureA> converterA;
       StructureA receivedDataA = converterA.deArraylize(rawBuffer);
       prt("Pressione esterna: ");
       prtn(receivedDataA.valueA);  
       i_EsternaPress = round(receivedDataA.valueA);
+      //
+      ora_pressEsterna = String(i_EsternaPress);
     }
 
     char outputString[20];

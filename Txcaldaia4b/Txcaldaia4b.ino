@@ -121,7 +121,7 @@ void setup() {
     ds_termo.termoFreddaC = (int16_t)(attualeTemp[TERMO_fredda]*100);
 
     ds_variazioni_calde.sender = 102;
-    ds_variazioni_calde.statoSanitaria = T_COSTANTE;
+    ds_variazioni_calde.statoTermo = T_COSTANTE;
     ds_variazioni_calde.statoSanitaria = T_COSTANTE;
 }
 
