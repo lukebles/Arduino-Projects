@@ -3,6 +3,7 @@
 #include <UniversalTelegramBot.h>
 #include "config.h"
 
+
 // Inizializzazione client e bot
 WiFiClientSecure client;
 UniversalTelegramBot bot(TELEGRAM_BOT_TOKEN, client);
@@ -26,14 +27,13 @@ void setup() {
   // Connessione al WiFi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(ledPin, LOW);
-    delay(30);
-    digitalWrite(ledPin, HIGH);
-    delay(1000);
-    Serial.print(".");
+    if (millis() - lastCheckTime > 1000) {
+      digitalWrite(ledPin, LOW);
+      delay(30);
+      digitalWrite(ledPin, HIGH);
+      lastCheckTime = millis();
+    }
   }
-
-  digitalWrite(ledPin, HIGH);
   Serial.println("\nConnesso al WiFi");
   Serial.print("Indirizzo IP: ");
   Serial.println(WiFi.localIP());
@@ -41,7 +41,7 @@ void setup() {
   // Configurazione client per Telegram
   client.setInsecure(); // Disabilita verifica del certificato SSL
 
-  // Invia messaggio di benvenuto su Telegram
+// Invia messaggio di benvenuto su Telegram
   if (bot.sendMessage(TELEGRAM_CHAT_ID, "ESP01 connesso a Internet!", "")) {
     Serial.println("Messaggio inviato con successo!");
   } else {
@@ -66,15 +66,19 @@ void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
     //String chat_id = bot.messages[i].chat_id;
     String text = bot.messages[i].text;
-
+    Serial.println(TELEGRAM_CHAT_ID);
+    Serial.println(text);
+    Serial.println("--------");
     if (text == "/accendi") {
-      digitalWrite(ledPin, HIGH);
+      digitalWrite(ledPin, LOW);
       bot.sendMessage(TELEGRAM_CHAT_ID, "LED acceso!", "");
     } else if (text == "/spegni") {
-      digitalWrite(ledPin, LOW);
+      digitalWrite(ledPin, HIGH);
       bot.sendMessage(TELEGRAM_CHAT_ID, "LED spento!", "");
     } else {
       bot.sendMessage(TELEGRAM_CHAT_ID, "Comando non riconosciuto. Usa /accendi o /spegni.", "");
     }
   }
 }
+
+

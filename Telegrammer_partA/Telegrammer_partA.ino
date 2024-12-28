@@ -102,10 +102,12 @@ void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
 
     // Funzione helper per inviare aggiornamenti
     auto sendGasUpdate = [](int& prevValue, int newValue, const char* label, const char* unit) {
-        if (prevValue != newValue) {
-            prevValue = newValue;
+        int i_new = round(float(newValue) / 100.0);
+        
+        if (prevValue != i_new) {
+            prevValue = i_new;
             char fullMessage[50];
-            snprintf(fullMessage, sizeof(fullMessage), "%s %d %s", label, newValue, unit);
+            snprintf(fullMessage, sizeof(fullMessage), "%s %d %s", label, i_new, unit);
             if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
                 // Gestione errore di invio
             }
@@ -300,10 +302,11 @@ void loop() {
 }
 
 
+
 // Gestione nuovi messaggi
 void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
-    String TELEGRAM_CHAT_ID = bot.messages[i].TELEGRAM_CHAT_ID;
+
     String text = bot.messages[i].text;
 
     if (text == "/accendi") {

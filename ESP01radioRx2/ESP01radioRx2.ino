@@ -2,20 +2,12 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
-
-// ================ 
-// Configurazione WiFi
-const char* ssid = "teoles2";
-const char* password = "Privato-9";
-
-// Configurazione Bot Telegram
-const char* botToken = "5736481637:AAGx2bkW0a_-2GnAQhzga2w-VUYMkXDL4ik";
-const char* chat_id = "154565021"; 
+#include "config.h"
 
 
 // Inizializzazione client e bot
 WiFiClientSecure client;
-UniversalTelegramBot bot(botToken, client);
+UniversalTelegramBot bot(TELEGRAM_BOT_TOKEN, client);
 
 unsigned long lastCheckTime = 0;
 const unsigned long botRequestDelay = 1000; // Tempo tra richieste in millisecondi
@@ -72,7 +64,7 @@ void inviaMessaggioSeNecessario(char* prevValue, const char* currentValue, const
   if (strncmp(prevValue, currentValue, bufferSize) != 0) { // Confronta solo fino alla dimensione del buffer
     strncpy(prevValue, currentValue, bufferSize - 1); // Aggiorna prevValue con currentValue
     prevValue[bufferSize - 1] = '\0'; // Garantisce che il buffer sia terminato correttamente
-    if (bot.sendMessage(chat_id, String(descrizione) + ": " + currentValue, "")) {
+    if (bot.sendMessage(TELEGRAM_CHAT_ID, String(descrizione) + ": " + currentValue, "")) {
       debugPrint("Messaggio inviato con successo!");
     } else {
       debugPrint("Errore nell'invio del messaggio!");
@@ -98,7 +90,7 @@ void setup() {
 
   radio.globalSetup(2000, -1, RECEIVE_PIN);
 
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - lastCheckTime > 1000) {
       digitalWrite(LED_PIN, LOW);
@@ -112,7 +104,7 @@ void setup() {
 
   client.setInsecure();
 
-  if (bot.sendMessage(chat_id, "ESP01 connesso a Internet", "")) {
+  if (bot.sendMessage(TELEGRAM_CHAT_ID, "ESP01 connesso a Internet", "")) {
     debugPrint("Messaggio inviato con successo!");
   } else {
     debugPrint("Errore nell'invio del messaggio!");
