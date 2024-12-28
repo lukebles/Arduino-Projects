@@ -1,15 +1,5 @@
-
-// ====== STRUTTURA DEI DIALOGHI ==========
-// handle_energy_counters     -> seriale -> pacchetto energia a WebNexus
-// checkString          <- seriale <- comandi inviati da WebNexus
-// handleRadioReception <- radio   <- discrimina con l'ID il pacchetto radio ricevuto
-//                                    ed invia coerentemente la struttura a WebNexus
-
-///////////////////////////////////////////////
-// la personalizzazione Luca/Marco riguarda
-// - ID_ENERGYSEND
-// - blink_allarme
-//////////////////////////////////////////////
+// DA USARSI SU SCHEDA Multicatch + WebNexus
+// questa è la parte "Multicatch"
 
 #include <LkRadioStructure.h>
 #include <LkBlinker.h>

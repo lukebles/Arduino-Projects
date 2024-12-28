@@ -1,3 +1,5 @@
+// DA USARSI SU SCHEDA Multicatch + WebNexus
+// questa è la parte "WebNexus"
 #include <math.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>
