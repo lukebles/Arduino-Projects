@@ -23,7 +23,7 @@ int bufferIndex = 0;
 #endif
 
 #define POWER_LIMIT 3990
-#define DEFAULT_LIMIT 9999
+#define DEFAULT_LIMIT 999.0
 
 // Costanti per i sender
 #define SENDER_ENERGY 1
@@ -40,13 +40,13 @@ const int LED_PIN = 2;
 const unsigned long botRequestDelay = 1000; // Tempo tra richieste in millisecondi
 
 typedef struct {
-    int temp;
-    int humidity;
-    int pressure;
-    int sanitaria_calda;
-    int sanitaria_fredda;
-    int termo_calda;
-    int termo_fredda;
+    float temperature;
+    float humidity;
+    float pressure;
+    float sanitaria_calda;
+    float sanitaria_fredda;
+    float termo_calda;
+    float termo_fredda;
     int potenza;
 } SensorValues;
 
@@ -55,6 +55,12 @@ static SensorValues prev_values = {
                                   DEFAULT_LIMIT, DEFAULT_LIMIT, DEFAULT_LIMIT, 
                                   DEFAULT_LIMIT, DEFAULT_LIMIT
                                   };
+static SensorValues curr_values = {
+                                  DEFAULT_LIMIT, DEFAULT_LIMIT, DEFAULT_LIMIT, 
+                                  DEFAULT_LIMIT, DEFAULT_LIMIT, DEFAULT_LIMIT, 
+                                  DEFAULT_LIMIT, DEFAULT_LIMIT
+                                  };
+
 
 // Inizializzazione client e bot
 WiFiClientSecure client;
@@ -75,57 +81,48 @@ void processEnergyPacket(uint8_t* data, size_t length) {
 
   // Calcolo della potenza istantanea
   float power = (diffA * 3600.0) / (diffTime / 1000.0);
-  int int_power = round(power);
-
-  if (int_power > POWER_LIMIT){
-    if (prev_values.potenza != int_power){
-      prev_values.potenza = int_power;
-      // send message
-      String fullMessage = "potenza " + String(int_power) + " W";
-      if (bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
-        // messaggio inviato
-      } else {
-        // messaggio non inviato
-      }
-    }
-  }
+  curr_values.potenza = int(round(power));
 }
 
 void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
     // Controlla la lunghezza del pacchetto
-    if (length != sizeof(uint16_t) * 2) {
+    if (length != sizeof(int16_t) * 2) {
         return;
     }
 
     // Decodifica i dati in modo sicuro
-    uint16_t valueB, valueC;
-    memcpy(&valueB, &data[0], sizeof(uint16_t));
-    memcpy(&valueC, &data[2], sizeof(uint16_t));
+    uint16_t calda, fredda;
+    memcpy(&calda, &data[0], sizeof(int16_t));
+    memcpy(&fredda, &data[2], sizeof(int16_t));
 
-    // Funzione helper per inviare aggiornamenti
-    auto sendGasUpdate = [](int& prevValue, int newValue, const char* label, const char* unit) {
-        int i_new = round(float(newValue) / 100.0);
+    float f_calda = float(calda/100.0);
+    float f_fredda = float(fredda/100.0);
+
+
+    // // Funzione helper per inviare aggiornamenti
+    // auto sendGasUpdate = [](int& prevValue, int newValue, const char* label, const char* unit) {
+    //     int i_new = round(float(newValue) / 100.0);
         
-        if (prevValue != i_new) {
-            prevValue = i_new;
-            char fullMessage[50];
-            snprintf(fullMessage, sizeof(fullMessage), "%s %d %s", label, i_new, unit);
-            if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
-                // Gestione errore di invio
-            }
-        }
-    };
+    //     if (prevValue != i_new) {
+    //         prevValue = i_new;
+    //         char fullMessage[50];
+    //         snprintf(fullMessage, sizeof(fullMessage), "%s %d %s", label, i_new, unit);
+    //         if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
+    //             // Gestione errore di invio
+    //         }
+    //     }
+    // };
 
     // Gestione dei pacchetti in base al sender
     switch (sender) {
         case SENDER_H2O_SANITARIA:
-            sendGasUpdate(prev_values.sanitaria_fredda, valueC, "h20 fredda", "°C");
-            sendGasUpdate(prev_values.sanitaria_calda, valueB, "h20 calda", "°C");
+            curr_values.sanitaria_calda = f_calda;
+            curr_values.sanitaria_fredda = f_fredda;
             break;
 
         case SENDER_H2O_TERMOSIFONI:
-            sendGasUpdate(prev_values.termo_fredda, valueC, "termo fredda", "°C");
-            sendGasUpdate(prev_values.termo_calda, valueB, "termo calda", "°C");
+            curr_values.termo_calda = f_calda;
+            curr_values.termo_fredda = f_fredda;
             break;
 
         default:
@@ -137,40 +134,48 @@ void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
 
 void processMeteoPacket(uint8_t sender, uint8_t* data, size_t length) {
 
-    digitalWrite(LED_PIN,LOW);
-    delay(300);
-    digitalWrite(LED_PIN,HIGH);
     if (length != sizeof(float)) {
         return;
     }
 
     float valueA;
     memcpy(&valueA, data, sizeof(float));
-    int int_valueA = round(valueA);
+    
 
-    auto sendMeteoUpdate = [](int& prevValue, int newValue, const char* label, const char* unit) {
-        if (prevValue != newValue) {
-            prevValue = newValue;
-            char fullMessage[50];
-            snprintf(fullMessage, sizeof(fullMessage), "meteo %s %d %s", label, newValue, unit);
-            if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
-                // Gestione errore
-            }
-        }
-    };
+    // auto sendMeteoUpdate = [](int& prevValue, int newValue, const char* label, const char* unit) {
+    //     if (prevValue != newValue) {
+    //         prevValue = newValue;
+    //         char fullMessage[50];
+    //         snprintf(fullMessage, sizeof(fullMessage), "meteo %s %d %s", label, newValue, unit);
+    //         if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
+    //             // Gestione errore
+    //         }
+    //     }
+    // };
 
     switch (sender) {
         case SENDER_METEO_TEMP:
-            sendMeteoUpdate(prev_values.temp, int_valueA, "temp", "°C");
+            curr_values.temperature = valueA;
+            //sendMeteoUpdate(prev_values.temperature, int_valueA, "temp", "°C");
             break;
         case SENDER_METEO_UMIDITA:
-            sendMeteoUpdate(prev_values.humidity, int_valueA, "umidita", "%");
+            curr_values.humidity = valueA;
+            //sendMeteoUpdate(prev_values.humidity, int_valueA, "umidita", "%");
             break;
         case SENDER_METEO_PRESSIONE:
-            sendMeteoUpdate(prev_values.pressure, int_valueA, "press", "hPa");
+            curr_values.pressure = valueA;
+            //sendMeteoUpdate(prev_values.pressure, int_valueA, "press", "hPa");
             break;
         default:
             break;
+    }
+}
+
+void sendUpdate(int newValue, const char* label, const char* unit) {
+    char fullMessage[50];
+    snprintf(fullMessage, sizeof(fullMessage), "%s %d %s", label, newValue, unit);
+    if (!bot.sendMessage(TELEGRAM_CHAT_ID, fullMessage, "")) {
+        // Gestione errore
     }
 }
 
@@ -184,8 +189,6 @@ void processStatusPacket(uint8_t* data, size_t length) {
 }
 
 void handleReceivedPacket(uint8_t sender, uint8_t* data, size_t length) {
-
-
   switch (sender) {
     case 1:
       processEnergyPacket(data, length);
@@ -221,7 +224,13 @@ void setup() {
   delay(1000);
   digitalWrite(LED_PIN, HIGH);
 // Connessione al WiFi
+
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  // Attiva la riconnessione automatica
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite(LED_PIN, LOW);
     delay(30);
@@ -240,7 +249,7 @@ void setup() {
   }      
 }
 
-bool receiveFromWebNexus(byte &sender, uint8_t* buffer, size_t bufferSize, size_t &length, unsigned long timeoutMs) {
+bool receiveFromMulticatch(byte &sender, uint8_t* buffer, size_t bufferSize, size_t &length, unsigned long timeoutMs) {
   unsigned long startTime = millis();
 
   // Controlla se ci sono abbastanza dati disponibili per il sender e la lunghezza
@@ -278,6 +287,18 @@ bool receiveFromWebNexus(byte &sender, uint8_t* buffer, size_t bufferSize, size_
 
 
 void loop() {
+
+  static unsigned long prevTime = 0; 
+
+  if (WiFi.status() != WL_CONNECTED) {
+    //prtn("Connessione persa, tentativo di riconnessione...");
+    WiFi.reconnect();
+    digitalWrite(LED_PIN, LOW);
+    delay(30);
+    digitalWrite(LED_PIN, HIGH);
+    delay(1000);
+    prt(".");
+  }
   
   // Controlla nuovi messaggi ogni secondo
   if (millis() - lastCheckTime > botRequestDelay) {
@@ -289,12 +310,62 @@ void loop() {
     lastCheckTime = millis();
   }
 
+  // Controlla se ci sono delle differenze
+  if ((millis() - prevTime) > 10000) {
+    if (abs((prev_values.humidity - curr_values.humidity)) > 1.0){
+      prev_values.humidity = curr_values.humidity;
+      int newValue = round(curr_values.humidity);
+      sendUpdate(newValue, "A meteo humidity", "%");
+    }    
+    if (abs((prev_values.temperature - curr_values.temperature)) > 1.0){
+      prev_values.temperature = curr_values.temperature;
+      int newValue = round(curr_values.temperature);
+      sendUpdate(newValue, "B meteo temper", "°C");
+    } 
+    if (abs((prev_values.pressure - curr_values.pressure)) > 1.0){
+      prev_values.pressure = curr_values.pressure;
+      int newValue = round(curr_values.pressure);
+      sendUpdate(newValue, "C meteo pressure", "hPa");
+    } 
+    if (abs((prev_values.sanitaria_calda - curr_values.sanitaria_calda)) > 1.0){
+      prev_values.sanitaria_calda = curr_values.sanitaria_calda;
+      int newValue = round(curr_values.sanitaria_calda);
+      sendUpdate(newValue, "D sanitaria calda", "°C");
+    }
+      if (abs((prev_values.sanitaria_fredda - curr_values.sanitaria_fredda)) > 1.0){
+      prev_values.sanitaria_fredda = curr_values.sanitaria_fredda;
+      int newValue = round(curr_values.sanitaria_fredda);
+      sendUpdate(newValue, "E sanitaria fredda", "°C");
+    }   
+    if (abs((prev_values.termo_calda - curr_values.termo_calda)) > 1.0){
+      prev_values.termo_calda = curr_values.termo_calda;
+      int newValue = round(curr_values.termo_calda);
+      sendUpdate(newValue, "F termo calda", "°C");
+    } 
+    if (abs((prev_values.termo_fredda - curr_values.termo_fredda)) > 1.0){
+      prev_values.termo_fredda = curr_values.termo_fredda;
+      int newValue = round(curr_values.termo_fredda);
+      sendUpdate(newValue, "G termo fredda", "°C");
+    } 
+
+    if (curr_values.potenza > POWER_LIMIT){
+      prev_values.potenza = 0;
+    }
+    if (abs((prev_values.potenza - curr_values.potenza)) > 2500.0){
+      prev_values.potenza = curr_values.potenza;
+      int newValue = round(curr_values.potenza);
+      sendUpdate(newValue, "H potenza", "W");
+    } 
+
+
+    prevTime = millis();
+  }
 
   // =========== RICEZIONE SERIALE ==========
   byte sender;
   uint8_t data[256]; // Buffer per i dati
   size_t length;
-  if (receiveFromWebNexus(sender, data, sizeof(data), length, 1000)) {
+  if (receiveFromMulticatch(sender, data, sizeof(data), length, 1000)) {
     // Pacchetto ricevuto correttamente
     handleReceivedPacket(sender, data, length);
   } else {
