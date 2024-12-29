@@ -31,23 +31,18 @@ WiFiClient client;
 
 const int LED_PIN = 2;
 
+float values[8];
+unsigned long timestamp_values[8];
+#define meteo_temperature 1
+#define meteo_humidity 2
+#define meteo_pressure 3
+#define h2o_sanit_fredda 4
+#define h2o_sanit_calda 5
+#define h2o_termo_fredda 6
+#define h2o_termo_calda 7
+#define enel_potenza 8
 
-typedef struct {
-    float temperature;
-    float humidity;
-    float pressure;
-    float sanitaria_calda;
-    float sanitaria_fredda;
-    float termo_calda;
-    float termo_fredda;
-    float potenza;
-} SensorValues;
-
-static SensorValues curr_values = {
-                                  DEFAULT_LIMIT, DEFAULT_LIMIT, DEFAULT_LIMIT, 
-                                  DEFAULT_LIMIT, DEFAULT_LIMIT, DEFAULT_LIMIT, 
-                                  DEFAULT_LIMIT, DEFAULT_LIMIT
-                                  };
+int contatore = 1;
 
 // Funzioni per elaborare i pacchetti ricevuti
 void processEnergyPacket(uint8_t* data, size_t length) {
@@ -62,7 +57,8 @@ void processEnergyPacket(uint8_t* data, size_t length) {
 
   // Calcolo della potenza istantanea
   float power = (diffA * 3600.0) / (diffTime / 1000.0);
-  curr_values.potenza = int(round(power));
+  values[enel_potenza] = int(round(power));
+  timestamp_values[enel_potenza] = millis();
 }
 
 void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
@@ -82,13 +78,17 @@ void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
     // Gestione dei pacchetti in base al sender
     switch (sender) {
         case SENDER_H2O_SANITARIA:
-            curr_values.sanitaria_calda = f_calda;
-            curr_values.sanitaria_fredda = f_fredda;
+            values[h2o_sanit_calda] = f_calda;
+            values[h2o_sanit_fredda] = f_fredda;
+            timestamp_values[h2o_sanit_calda] = millis();
+            timestamp_values[h2o_sanit_fredda] = millis();
             break;
 
         case SENDER_H2O_TERMOSIFONI:
-            curr_values.termo_calda = f_calda;
-            curr_values.termo_fredda = f_fredda;
+            values[h2o_termo_calda] = f_calda;
+            values[h2o_termo_fredda] = f_fredda;
+            timestamp_values[h2o_termo_calda] = millis();
+            timestamp_values[h2o_termo_fredda] = millis();            
             break;
 
         default:
@@ -109,15 +109,18 @@ void processMeteoPacket(uint8_t sender, uint8_t* data, size_t length) {
     
     switch (sender) {
         case SENDER_METEO_TEMP:
-            curr_values.temperature = valueA;
+            values[meteo_temperature] = valueA;
+            timestamp_values[meteo_temperature] = millis();
             //sendMeteoUpdate(prev_values.temperature, int_valueA, "temp", "°C");
             break;
         case SENDER_METEO_UMIDITA:
-            curr_values.humidity = valueA;
+            values[meteo_humidity] = valueA;
+            timestamp_values[meteo_humidity] = millis();
             //sendMeteoUpdate(prev_values.humidity, int_valueA, "umidita", "%");
             break;
         case SENDER_METEO_PRESSIONE:
-            curr_values.pressure = valueA;
+            values[meteo_pressure] = valueA;
+            timestamp_values[meteo_pressure] = millis();
             //sendMeteoUpdate(prev_values.pressure, int_valueA, "press", "hPa");
             break;
         default:
@@ -246,21 +249,16 @@ void loop() {
   
 
   // Controlla se ci sono delle differenze
-  if ((millis() - prevTime) > 16000) {
+  if ((millis() - prevTime) > 5000) {
+    if (contatore > 8){
+      contatore = 1;
+    }
 
-    setField(1, curr_values.temperature);
-    setField(2, curr_values.humidity);
-    setField(3, curr_values.pressure);
-
-    setField(4, curr_values.sanitaria_fredda);
-    setField(5, curr_values.sanitaria_calda);
-    setField(6, curr_values.termo_fredda);
-    setField(7, curr_values.termo_calda);
-
-    setField(8, curr_values.potenza);
-
-    ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
-
+    if ((millis() - timestamp_values[contatore]) < 120000){
+      setField(contatore, values[contatore]);
+      ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
+    }
+    contatore += 1;
     prevTime = millis();
   }
 
