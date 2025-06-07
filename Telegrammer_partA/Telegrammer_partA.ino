@@ -6,7 +6,7 @@
 #include <UniversalTelegramBot.h>
 #include "config.h" // password & C
 
-#define DEBUG 0 // 0 off 1 on
+#define DEBUG 1 // 0 off 1 on
 // Definizioni costanti
 #define MAX_SERIAL_BUFFER 64
 

@@ -5,7 +5,7 @@
 
 WiFiClient client;
 
-#define DEBUG 0 // 0 off 1 on
+#define DEBUG 1 // 0 off 1 on
 
 #if DEBUG
 #define prt(x) Serial.print(x)
@@ -14,7 +14,6 @@ WiFiClient client;
 #define prt(x)
 #define prtn(x)
 #endif
-
 
 #define POWER_LIMIT 3990
 #define DEFAULT_LIMIT 999.0
@@ -31,8 +30,9 @@ WiFiClient client;
 
 const int LED_PIN = 2;
 
-float values[8];
-unsigned long timestamp_values[8];
+float values[9];
+// unsigned long timestamp_values[8];
+#define valore_dummy 0
 #define meteo_temperature 1
 #define meteo_humidity 2
 #define meteo_pressure 3
@@ -42,7 +42,7 @@ unsigned long timestamp_values[8];
 #define h2o_termo_calda 7
 #define enel_potenza 8
 
-int contatore = 1;
+int contatore = 0;
 
 // Funzioni per elaborare i pacchetti ricevuti
 void processEnergyPacket(uint8_t* data, size_t length) {
@@ -58,7 +58,7 @@ void processEnergyPacket(uint8_t* data, size_t length) {
   // Calcolo della potenza istantanea
   float power = (diffA * 3600.0) / (diffTime / 1000.0);
   values[enel_potenza] = int(round(power));
-  timestamp_values[enel_potenza] = millis();
+  //timestamp_values[enel_potenza] = millis();
 }
 
 void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
@@ -80,15 +80,15 @@ void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
         case SENDER_H2O_SANITARIA:
             values[h2o_sanit_calda] = f_calda;
             values[h2o_sanit_fredda] = f_fredda;
-            timestamp_values[h2o_sanit_calda] = millis();
-            timestamp_values[h2o_sanit_fredda] = millis();
+            //timestamp_values[h2o_sanit_calda] = millis();
+            //timestamp_values[h2o_sanit_fredda] = millis();
             break;
 
         case SENDER_H2O_TERMOSIFONI:
             values[h2o_termo_calda] = f_calda;
             values[h2o_termo_fredda] = f_fredda;
-            timestamp_values[h2o_termo_calda] = millis();
-            timestamp_values[h2o_termo_fredda] = millis();            
+            //timestamp_values[h2o_termo_calda] = millis();
+            //timestamp_values[h2o_termo_fredda] = millis();            
             break;
 
         default:
@@ -96,7 +96,6 @@ void processGasPacket(uint8_t sender, uint8_t* data, size_t length) {
             break;
     }
 }
-
 
 void processMeteoPacket(uint8_t sender, uint8_t* data, size_t length) {
 
@@ -110,17 +109,17 @@ void processMeteoPacket(uint8_t sender, uint8_t* data, size_t length) {
     switch (sender) {
         case SENDER_METEO_TEMP:
             values[meteo_temperature] = valueA;
-            timestamp_values[meteo_temperature] = millis();
+            //timestamp_values[meteo_temperature] = millis();
             //sendMeteoUpdate(prev_values.temperature, int_valueA, "temp", "°C");
             break;
         case SENDER_METEO_UMIDITA:
             values[meteo_humidity] = valueA;
-            timestamp_values[meteo_humidity] = millis();
+            //timestamp_values[meteo_humidity] = millis();
             //sendMeteoUpdate(prev_values.humidity, int_valueA, "umidita", "%");
             break;
         case SENDER_METEO_PRESSIONE:
             values[meteo_pressure] = valueA;
-            timestamp_values[meteo_pressure] = millis();
+            //timestamp_values[meteo_pressure] = millis();
             //sendMeteoUpdate(prev_values.pressure, int_valueA, "press", "hPa");
             break;
         default:
@@ -132,10 +131,10 @@ void processStatusPacket(uint8_t* data, size_t length) {
   if (length != 2) {
     return;
   }
-
   byte valueF = data[0];
   byte valueG = data[1];
 }
+
 
 
 bool receiveFromMulticatch(byte &sender, uint8_t* buffer, size_t bufferSize, size_t &length, unsigned long timeoutMs) {
@@ -151,9 +150,13 @@ bool receiveFromMulticatch(byte &sender, uint8_t* buffer, size_t bufferSize, siz
   // Leggi il sender
   sender = Serial.read();
 
+  prtn(sender);
+
   // Leggi la lunghezza del pacchetto
   byte lengthByte = Serial.read();
   length = (size_t)lengthByte;
+
+  prtn(length);
 
   // Verifica se la lunghezza è maggiore del buffer disponibile
   if (length > bufferSize) {
@@ -173,7 +176,6 @@ bool receiveFromMulticatch(byte &sender, uint8_t* buffer, size_t bufferSize, siz
 
   return true; // Pacchetto ricevuto correttamente
 }
-
 
 void handleReceivedPacket(uint8_t sender, uint8_t* data, size_t length) {
   switch (sender) {
@@ -203,20 +205,22 @@ void handleReceivedPacket(uint8_t sender, uint8_t* data, size_t length) {
 }
 
 void setup() {
+  // START
   Serial.begin(115200);
+  delay(2000);
+  prtn("");
   prtn("Avvio ESP01");
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
   delay(1000);
   digitalWrite(LED_PIN, HIGH);
-// Connessione al WiFi
-
-
+  // Connessione al WiFi
+  prt("Tentativo di connessione al WiFi");
+  client.setTimeout(5000); // Imposta timeout di 5 secondi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // Attiva la riconnessione automatica
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite(LED_PIN, LOW);
     delay(30);
@@ -224,61 +228,79 @@ void setup() {
     delay(1000);
     prt(".");
   }
-
+  // AZZERAMENTO VALORI
+  for (int i=1; i <= 8; i++){
+    values[i]=DEFAULT_LIMIT;
+  }
   ThingSpeak.begin(client);
 }
 
-void setField(uint8_t field, float value){
-  if (value != DEFAULT_LIMIT){
-    ThingSpeak.setField(field, value);
-  }
-}
 void loop() {
 
-  static unsigned long prevTime = 0; 
-
-  if (WiFi.status() != WL_CONNECTED) {
-    //prtn("Connessione persa, tentativo di riconnessione...");
-    WiFi.reconnect();
-    digitalWrite(LED_PIN, LOW);
-    delay(30);
-    digitalWrite(LED_PIN, HIGH);
-    delay(1000);
-    prt(".");
+  // si resetta ogni ora
+  static unsigned long lastRestart = millis();
+  if (millis() - lastRestart > 3600000) { // 1 ora
+    prtn("Riavvio programmato");
+    ESP.restart();
   }
-  
 
-  // Controlla se ci sono delle differenze
-  if ((millis() - prevTime) > 5000) {
-    if (contatore > 8){
-      contatore = 1;
+
+  static unsigned long prevTime = 0; 
+  // ============== CONNESSIONE WIFI ===========
+  if (WiFi.status() != WL_CONNECTED) {
+    unsigned long reconnectStart = millis();
+    prt("Tentativo di connessione al WiFi");
+    while (WiFi.status() != WL_CONNECTED && millis() - reconnectStart < 300000) {
+      WiFi.reconnect();
+      delay(500);
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+      prtn("Riavvio dopo un certo tempo di tentativi");
+      ESP.restart(); // Riavvia l'ESP01 se non riesce a riconnettersi
+    }
+  }
+  // ============= THING SPEAK ============
+  if ((millis() - prevTime) > 16000) {
+    // trascorsi i 15 secondi
+    // imposta per thingSpeak i valori 
+    // che sono stati ricevuti via radio...
+    for (int i = 1; i <= 8; i++){
+      if (values[i] != DEFAULT_LIMIT){
+        ThingSpeak.setField(i, values[i]);
+        // una volta memorizzato per thingSpeak
+        // lo segna come "da ricevere via radio"
+        //values[i] = DEFAULT_LIMIT;
+      }
+    }
+    // ... e li invia
+    int result = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
+    delay(1000);
+    if (result != 200) { // 200 indica successo
+      prtn("Errore nell'invio a ThingSpeak, codice: " + String(result));
+      prtn("Heap disponibile: " + String(ESP.getFreeHeap()) + " byte");
+    }
+    //ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
+    //client.stop();
+
+    if (result == 200) {
+      for (int i = 1; i <= 8; i++) {
+        values[i] = DEFAULT_LIMIT;
+      }
     }
 
-    if ((millis() - timestamp_values[contatore]) < 120000){
-      setField(contatore, values[contatore]);
-      ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
-    }
-    contatore += 1;
     prevTime = millis();
   }
-
-// =========== RICEZIONE SERIALE ==========
+  // =========== RICEZIONE SERIALE ==========
   byte sender;
   uint8_t data[256]; // Buffer per i dati
   size_t length;
+
   if (receiveFromMulticatch(sender, data, sizeof(data), length, 1000)) {
     // Pacchetto ricevuto correttamente
     handleReceivedPacket(sender, data, length);
-  } else {
-    prtn("Timeout o errore nella ricezione del pacchetto.");
-  }
-  // =======================================
+  } //else {
+    //while (Serial.available() > 0) Serial.read(); // Pulisci il buffer
+    //prtn("Timeout o errore nella ricezione del pacchetto.");
+    //prtn("Heap disponibile: " + String(ESP.getFreeHeap()) + " byte");
+  //}
 }
-
-
-
-
-    // float temperature = 25.5; // Sostituisci con il tuo sensore
-    // ThingSpeak.setField(1, temperature);
-    // ThingSpeak.writeFields(THINGSPEAK_CHANNEL_ID, THINGSPEAK_API_KEY_WRITE);
-    // delay(15000); // Rispetta il limite di 15 secondi

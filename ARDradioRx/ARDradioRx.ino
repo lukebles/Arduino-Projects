@@ -49,8 +49,7 @@ int i_EsternaTemp = 99;
 int i_EsternaPress = 9999;
 int i_EsternaUmidita = 99;
 
-uint16_t prev_elettrico;
-prev_elettrico = 0;
+uint16_t prev_elettrico =0 ;
 bool primoAvvio = true;
 
 String prev_potenza = "";
@@ -121,7 +120,7 @@ void loop() {
         primoAvvio = false;
       }
       else {
-        uint16_t diff = receivedDataC.valueD - prev_elettrico
+        uint16_t diff = receivedDataC.valueD - prev_elettrico;
         if (diff > 12){
           ora_potenza = String(diff);
         } else {
@@ -154,7 +153,7 @@ void loop() {
       i_tSanitIn = round(tSanitIn); 
       int i_diff = round(tSanitOut - tSanitIn);
       //
-      ora_acquaCalda = String(i_tSanitIn) + " " + String(i_tSanitOut) + " (" + String(i_diff) + ")"
+      ora_acquaCalda = String(i_tSanitIn) + " " + String(i_tSanitOut) + " (" + String(i_diff) + ")";
     
     
     } else if (sender == 101) {
@@ -170,7 +169,7 @@ void loop() {
       i_tTermoIn = round(tTermoIn); 
       int i_diff = round(i_tTermoOut - i_tTermoIn);
       //
-      ora_termosifoni = String(i_tTermoIn) + " " + String(i_tTermoOut) + " (" + String(i_diff) + ")"      
+      ora_termosifoni = String(i_tTermoIn) + " " + String(i_tTermoOut) + " (" + String(i_diff) + ")" ;     
     } else if (sender == 102) {
       LkArraylize<StructureB> converterB;
       StructureB receivedDataB = converterB.deArraylize(rawBuffer);
