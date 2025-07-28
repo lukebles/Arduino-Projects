@@ -251,7 +251,7 @@ void radioMessage2arduino(){
           // Infatti di solito i conteggi dei secondi sono dell'ordine delle decine di secondi
           // e gli stessi numeri (anche inferiori, dipende dal consumo) riguardano
           // il delta-energia.
-          if (delta_tempo_sec > 3600.0) || (delta_energia_wh > 3600.0) {
+          if ((delta_tempo_sec > 3600.0) || (delta_energia_wh > 3600.0)) {
             // non fa niente se mi trovo in una situazione strana
           } else {
             // determinazione della potenza attiva istantanea

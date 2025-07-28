@@ -1,40 +1,37 @@
-/*
-    Questo sistema garantisce che la Megane si ricarichi in modo efficiente, senza superare i limiti di consumo domestico.
-
-    **Gestione della Ricarica della Megane (Auto Ibrida)**
-
-    Questo codice controlla la ricarica dell'auto ibrida ("Megane") in base agli assorbimenti elettrici della casa.
-    Il sistema ha le seguenti regole:
-
-    1) **Spegnimento per Priorità agli Altri Carichi:**
-       - Se il consumo totale della casa supera **3600W**, il sistema interrompe immediatamente la ricarica della Megane.
-
-    2) **Riconoscimento della Ricarica Megane:**
-       - Se il consumo rientra tra **2000W e 3500W**, si presume che la Megane sia in ricarica.
-       - Se questo stato dura **almeno 30 minuti senza interruzioni**, viene confermato che il carico appartiene alla Megane.
-
-    3) **Gestione delle Interruzioni Brevi (<3 minuti):**
-       - Se il consumo supera **3500W** per meno di **3 minuti**, il tempo di carica è considerata in corso e non viene interrotta.
-       - Se il consumo scende sotto **2000W** per meno di **3 minuti**, il tempo di carica è considerata in corso e il timer di ricarica continua.
-
-    4) **Gestione delle Interruzioni Lunghe (>3 minuti):**
-       - Se il consumo **supera 3500W per più di 3 minuti** e la carica NON è ancora durata 30 minuti, il timer di ricarica si resetta.
-       - Se il consumo **scende sotto 2000W per più di 3 minuti**, il sistema aspetta per verificare se la Megane sta ancora caricando.
-
-    5) **Spegnimento Definitivo:**
-       - Se il consumo resta **sotto 2000W per più di 1 ora**, significa che la Megane ha terminato la ricarica e il relè viene disattivato in modo definitivo.
-
-    6) **Riaccensione del Relè:**
-       - Se il consumo totale è **inferiore a 1100W** e i dati sono validi, il relè si riaccende per continuare la carica **a meno che non sia stato già spento definitivamente**.
-
-    7) **Tempo di Carica Totale:**
-       - La Megane può ricaricarsi per un **minimo di 30 minuti** fino a un **massimo di 6 ore**.
-*/
-
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <LkMultivibrator.h>
+
+#define MAX_VALORI 10
+
+class MediaUltimi10 {
+  int valori[MAX_VALORI];
+  int indice = 0;
+  int totale = 0;
+  int conta = 0;
+
+public:
+  // Aggiunge un numero e restituisce la media intera
+  int aggiungi(int numero) {
+    // Se l'array è pieno, togliamo il valore più vecchio dal totale
+    if (conta == MAX_VALORI) {
+      totale -= valori[indice];
+    } else {
+      conta++;
+    }
+
+    valori[indice] = numero;
+    totale += numero;
+
+    indice = (indice + 1) % MAX_VALORI;
+
+    int media = (totale + conta / 2) / conta; // media intera arrotondata al più vicino
+    return ((media + 5) / 10) * 10;           // arrotondamento alle decine
+
+  }
+};
+
 
 const char* ssid = "sid2";
 const char* password = "pw12345678";
@@ -48,13 +45,17 @@ const unsigned long releOnDuration = 10000;// 1200000;  // 20 minutes in millise
 const unsigned long releOffDuration = 5000; //60000;   // 1 minute in milliseconds
 unsigned long tempoSpentoRele = 0; // Memorizza il tempo di spegnimento del relè
 
+MediaUltimi10 media;
+
 // ==========================================
 // mdoficare i tempi in base alle necessità
 // ==========================================
-#define MEZZORA 15*60*1000 // 15 minuti
-#define TREMINUTI 3*60*1000
-#define UNORA 10*60*1000   // 10 minuti
-#define TEMPO_RIACCENSIONE_RELE 180000 // 3 minuti in millisecondi
+const unsigned long MINUTO = 60000;
+
+#define MEZZORA 15 * MINUTO 
+#define TREMINUTI 3 * MINUTO
+#define UNORA 10 * MINUTO   
+#define TEMPO_RIACCENSIONE_RELE 3 * MINUTO // 3 minuti in millisecondi
 bool meganeInCarica = false;
 bool stopRicaricaMegane = false;
 //
@@ -99,7 +100,7 @@ void setup() {
 
   reconnectTimer.start();
 
-  connectToWiFi();
+  //connectToWiFi();
 
 }
 
@@ -144,20 +145,23 @@ void connectToWiFi() {
 void processWebData() {
   WiFiClient client;
   HTTPClient http;
-  
-  http.begin(client, url);
-  int httpCode = http.GET();
-  
-  if (httpCode > 0) {
-    String payload = http.getString();
-    prtn("HTTP Response:");
-    prtn(payload);
-    handlePayload(payload);
+
+  if (!http.begin(client, url)) {
+    prtn("HTTP begin failed");
+    return;
   } else {
-    prtn("Error on HTTP request");
+    http.begin(client, url);
+    int httpCode = http.GET();    
+    if (httpCode > 0) {
+      String payload = http.getString();
+      prtn("HTTP Response:");
+      prtn(payload);
+      handlePayload(payload);
+    } else {
+      prtn("Error on HTTP request");
+    }
+    http.end();
   }
-  
-  http.end();
 }
 
 void handlePayload(String payload) {
@@ -170,69 +174,11 @@ void handlePayload(String payload) {
     int power = powerStr.toInt();
     int valid = validStr.toInt();
     // stampa su display esterno (seriale altrimenti)
-    Serial.println(power);
 
-    // =====================================================
-    // gestione dello spegnimento definitivo rele quando la
-    // megane ha finito di caricarsi
-    // =====================================================
-    // if (power >= 2000 && power < 3500) {
-    //   // Assorbimento simile a quello della Megane
-    //   tempoCaricoGenericoALTO = 0;
+    int mediaAttuale = media.aggiungi(power);
+    Serial.println(mediaAttuale);
 
-    //   if (tempoAccessoMegane == 0) {
-    //     // La carica inizia ora
-    //     tempoAccessoMegane = millis();
-    //     prtn("Assorbimento simile caricamento Megane: rilevato per la 1 volta");
-    //   } else if (millis() - tempoAccessoMegane >= MEZZORA) {
-    //     // Dopo mezz'ora di carica continua confermiamo che è la Megane
-    //     tempoSpentoMegane = 0;
-    //     if (!meganeInCarica) {
-    //       meganeInCarica = true;
-    //       prtn("La Megane è in carica da mezz'ora: confermato");
-    //     }
-    //   }
-    // } else if (power >= 3500) {
-    //   // Carico generico ALTO: possibile interruzione della carica Megane
-    //   if (tempoCaricoGenericoALTO == 0) {
-    //     tempoCaricoGenericoALTO = millis();
-    //     prtn("Assorbimento generico ALTO rilevato per la 1 volta");
-    //   } else if (millis() - tempoCaricoGenericoALTO >= TREMINUTI) {
-    //     if (!meganeInCarica) {
-    //       // Resetto la carica perché non ha ancora raggiunto mezz'ora
-    //       prtn("Resetto il timer di identificazione carica-megane");
-    //       tempoAccessoMegane = 0;
-    //     } else {
-    //       prtn("La carica della Megane è stata temporaneamente interrotta");
-    //     }
-    //   }
-    // } else {
-    //   // Assorbimento sotto i 2000W
-    //   if (meganeInCarica) {
-    //     if (tempoSpentoMegane == 0) {
-    //       tempoSpentoMegane = millis();
-    //     } else if (millis() - tempoSpentoMegane > UNORA) {
-    //       // La Megane ha finito di caricarsi
-    //       meganeInCarica = false;
-    //       stopRicaricaMegane = true;
-    //       digitalWrite(pinRele, LOW);
-    //       prtn("Megane ha terminato la carica: spengo il relè");
-    //     }
-    //   }
-    // }
-    // ========================================================
-    // Gestione del relè in base alla potenza totale assorbita
-    // il relè non si accenderà e spegnerà continuamente se il consumo supera temporaneamente i 3600W, 
-    // evitando usura del relè e instabilità nel sistema di ricarica.
-    // ========================================================
-    // - Attesa di 3 minuti prima di riaccendere il relè
-    // Ora, dopo ogni spegnimento, il relè non si riaccende prima di 3 minuti, anche se le condizioni di ricarica tornano favorevoli.
-    // - Memorizzazione del tempo di spegnimento
-    // Quando il relè viene spento, viene registrato il tempo di spegnimento in tempoSpentoRele.
-    // - Verifica prima della riaccensione
-    // Il relè si riaccende solo se sono passati almeno 3 minuti dallo spegnimento e se le condizioni di carica lo permettono.
-    //
-    if (digitalRead(pinRele)) {
+    if (digitalRead(pinRele) == HIGH) {
         if (power > 3600) {
             digitalWrite(pinRele, LOW);
             tempoSpentoRele = millis(); // Registra il momento dello spegnimento
@@ -254,3 +200,5 @@ void handlePayload(String payload) {
     }
   }
 }
+
+
