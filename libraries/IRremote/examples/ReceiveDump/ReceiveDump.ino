@@ -90,8 +90,14 @@ void setup() {
     // infos for receive
     Serial.print(RECORD_GAP_MICROS);
     Serial.println(F(" us is the (minimum) gap, after which the start of a new IR packet is assumed"));
+
+#  if defined(USE_THRESHOLD_DECODER)
+    Serial.println(F("Threshold decoding is active and thus MARK_EXCESS_MICROS is set to 0"));
+#  else
     Serial.print(MARK_EXCESS_MICROS);
     Serial.println(F(" us are subtracted from all marks and added to all spaces for decoding"));
+#  endif
+
     Serial.println();
     Serial.println(F("Because of the verbose output (>200 ms at 115200 baud), repeats are not dumped correctly!"));
     Serial.println();
@@ -130,10 +136,13 @@ void loop() {
             Serial.print(F("Result as internal 8bit ticks (50 us) array - compensated with MARK_EXCESS_MICROS="));
             Serial.println(MARK_EXCESS_MICROS);
             IrReceiver.compensateAndPrintIRResultAsCArray(&Serial, false); // Output the results as uint8_t source code array of ticks
+            Serial.println();                               // blank line between entries
             Serial.print(F("Result as microseconds array - compensated with MARK_EXCESS_MICROS="));
             Serial.println(MARK_EXCESS_MICROS);
             IrReceiver.compensateAndPrintIRResultAsCArray(&Serial, true); // Output the results as uint16_t source code array of micros
+            Serial.println();                               // blank line between entries
             IrReceiver.printIRResultAsCVariables(&Serial);  // Output address and data as source code variables
+            Serial.println();                               // blank line between entries
             Serial.println();                               // blank line between entries
 
             IrReceiver.compensateAndPrintIRResultAsPronto(&Serial);

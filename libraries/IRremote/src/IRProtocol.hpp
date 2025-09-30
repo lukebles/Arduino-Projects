@@ -74,6 +74,7 @@ const char string_Lego[] PROGMEM = "Lego";
 const char string_MagiQuest[] PROGMEM = "MagiQuest";
 const char string_Whynter[] PROGMEM = "Whynter";
 const char string_FAST[] PROGMEM = "FAST";
+const char string_Other[] PROGMEM = "OTHER";
 
 /*
  * !!Must be the same order as in decode_type_t in IRProtocol.h!!!
@@ -84,7 +85,7 @@ PROGMEM = { string_Unknown, string_PulseWidth, string_PulseDistance, string_Appl
         string_Kaseikyo_JVC, string_Kaseikyo_Mitsubishi, string_RC5, string_RC6, string_RC6A, string_Samsung, string_SamsungLG,
         string_Samsung48, string_Sharp, string_Sony
 #if !defined(EXCLUDE_EXOTIC_PROTOCOLS)
-        , string_BangOlufsen, string_BoseWave, string_Lego, string_MagiQuest, string_Whynter, string_FAST
+        , string_BangOlufsen, string_BoseWave, string_Lego, string_MagiQuest, string_Whynter, string_FAST, string_Other
 #endif
         };
 
@@ -149,127 +150,6 @@ namespace PrintULL {
 };
 #  endif
 #endif
-
-/** @}
- * \addtogroup Print Print functions
- * @{
- */
-/**
- * Function to print decoded result and flags in one line.
- * A static function to be able to print data to send or copied received data.
- * Ends with println().
- *
- * @param aSerial The Print object on which to write, for Arduino you can use &Serial.
- * @param aIRDataPtr        Pointer to the data to be printed.
- * @param aPrintRepeatGap   If true also print the gap before repeats.
- *
- */
-void printIRResultShort(Print *aSerial, IRData *aIRDataPtr, bool aPrintRepeatGap) {
-    (void) aPrintRepeatGap;
-    printIRResultShort(aSerial, aIRDataPtr);
-}
-void printIRResultShort(Print *aSerial, IRData *aIRDataPtr) {
-    if (aIRDataPtr->flags & IRDATA_FLAGS_WAS_OVERFLOW) {
-        aSerial->println(F("Overflow"));
-        return;
-    }
-    aSerial->print(F("Protocol="));
-    aSerial->print(getProtocolString(aIRDataPtr->protocol));
-    if (aIRDataPtr->protocol == UNKNOWN) {
-#if defined(DECODE_HASH)
-        aSerial->print(F(" Hash=0x"));
-#if (__INT_WIDTH__ < 32)
-        aSerial->print(aIRDataPtr->decodedRawData, HEX);
-#else
-        PrintULL::print(aSerial,aIRDataPtr->decodedRawData, HEX);
-#endif
-
-#endif
-#if !defined(DISABLE_CODE_FOR_RECEIVER)
-        aSerial->print(' ');
-        aSerial->print((aIRDataPtr->rawlen + 1) / 2, DEC);
-        aSerial->println(F(" bits (incl. gap and start) received"));
-#endif
-    } else {
-#if defined(DECODE_DISTANCE_WIDTH)
-        if (aIRDataPtr->protocol != PULSE_DISTANCE && aIRDataPtr->protocol != PULSE_WIDTH) {
-#endif
-        /*
-         * New decoders have address and command
-         */
-        aSerial->print(F(" Address=0x"));
-        aSerial->print(aIRDataPtr->address, HEX);
-
-        aSerial->print(F(" Command=0x"));
-        aSerial->print(aIRDataPtr->command, HEX);
-
-        if (aIRDataPtr->flags & IRDATA_FLAGS_EXTRA_INFO) {
-            aSerial->print(F(" Extra=0x"));
-            aSerial->print(aIRDataPtr->extra, HEX);
-        }
-
-        if (aIRDataPtr->flags & IRDATA_FLAGS_PARITY_FAILED) {
-            aSerial->print(F(" Parity fail"));
-        }
-
-        if (aIRDataPtr->flags & IRDATA_FLAGS_TOGGLE_BIT) {
-            aSerial->print(F(" Toggle=1"));
-        }
-#if defined(DECODE_DISTANCE_WIDTH)
-        }
-#endif
-
-        /*
-         * Print raw data
-         */
-        if (!(aIRDataPtr->flags & IRDATA_FLAGS_IS_REPEAT) || aIRDataPtr->decodedRawData != 0) {
-            aSerial->print(F(" Raw-Data=0x"));
-#if (__INT_WIDTH__ < 32)
-            aSerial->print(aIRDataPtr->decodedRawData, HEX);
-#else
-            PrintULL::print(aSerial, aIRDataPtr->decodedRawData, HEX);
-#endif
-            /*
-             * Print number of bits processed
-             */
-            aSerial->print(' ');
-            aSerial->print(aIRDataPtr->numberOfBits, DEC);
-            aSerial->print(F(" bits"));
-
-            if (aIRDataPtr->flags & IRDATA_FLAGS_IS_MSB_FIRST) {
-                aSerial->print(F(" MSB first"));
-            } else {
-                aSerial->print(F(" LSB first"));
-            }
-        }
-
-        /*
-         * Print gap and duration, in order to be able to compute the repeat period of the protocol by adding the next gap time
-         */
-        if (aIRDataPtr->flags & (IRDATA_FLAGS_IS_AUTO_REPEAT | IRDATA_FLAGS_IS_REPEAT)) {
-            aSerial->print(' ');
-            if (aIRDataPtr->flags & IRDATA_FLAGS_IS_AUTO_REPEAT) {
-                aSerial->print(F("Auto-"));
-            }
-            aSerial->print(F("Repeat"));
-        }
-#if !defined(DISABLE_CODE_FOR_RECEIVER)
-        aSerial->print(F(" Gap="));
-        aSerial->print((uint32_t) aIRDataPtr->initialGapTicks * MICROS_PER_TICK);
-        aSerial->print(F("us"));
-
-        uint16_t tSumOfDurationTicks = 0;
-        for (IRRawlenType i = 1; i < aIRDataPtr->rawlen; i++) {
-            tSumOfDurationTicks += aIRDataPtr->rawDataPtr->rawbuf[i];
-        }
-        aSerial->print(F(" Duration="));
-        aSerial->print((uint32_t) tSumOfDurationTicks * MICROS_PER_TICK, DEC);
-        aSerial->println(F("us"));
-#else
-        aSerial->println();
-#endif
-    }
-}
 
 /** @}
  * \addtogroup Utils Utility functions

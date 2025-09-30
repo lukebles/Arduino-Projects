@@ -82,6 +82,8 @@
 #define BAUDRATE 115200
 #define NO_DECODER
 
+//#define NO_LED_FEEDBACK_CODE      // Saves 346 bytes program memory
+
 #include "IRremote.hpp"
 #include <limits.h>
 
@@ -258,13 +260,13 @@ static void sendRaw(const microseconds_t intro[], unsigned lengthIntro, const mi
 #if defined(RECEIVE)
 
 static void dump(Stream &stream) {
-    unsigned int count = IrReceiver.decodedIRData.rawDataPtr->rawlen;
+    unsigned int count = IrReceiver.irparams.rawlen;
     // If buffer gets full, count = RAW_BUFFER_LENGTH, which is odd,
     // and IrScrutinizer does not like that.
     count &= ~1;
     for (unsigned int i = 1; i < count; i++) {
         stream.write(i & 1 ? '+' : '-');
-        stream.print(IrReceiver.decodedIRData.rawDataPtr->rawbuf[i] * MICROS_PER_TICK, DEC);
+        stream.print(IrReceiver.irparams.rawbuf[i] * MICROS_PER_TICK, DEC);
         stream.print(" ");
     }
     stream.print('-');
@@ -307,9 +309,13 @@ void setup() {
 #endif
 
 #if defined(IR_SEND_PIN)
-    IrSender.begin(); // Start with IR_SEND_PIN -which is defined in PinDefinitionsAndMore.h- as send pin and enable feedback LED at default feedback LED pin
+    /*
+     * No IR library setup required :-)
+     * Default is to use IR_SEND_PIN -which is defined in PinDefinitionsAndMore.h- as send pin
+     * and use feedback LED at default feedback LED pin if not disabled by #define NO_LED_SEND_FEEDBACK_CODE
+     */
 #else
-    IrSender.begin(3, ENABLE_LED_FEEDBACK, USE_DEFAULT_FEEDBACK_LED_PIN); // Specify send pin and enable feedback LED at default feedback LED pin
+    IrSender.begin(3); // Specify send pin and enable feedback LED at default feedback LED pin
 #endif
 
 }

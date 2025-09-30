@@ -2,6 +2,26 @@
 The latest version may not be released!
 See also the commit log at github: https://github.com/Arduino-IRremote/Arduino-IRremote/commits/master
 
+# 4.5.0
+- Added support for multiple receiver instances.
+- irparams_struct irparams is now member of IRrecv. Thus removed rawDataPtr (pointer to irparams) from IrReceiver.decodedIRData.
+- Removed return value for all decodePulseDistanceWidthData() decoding functions, which returned a constant true.
+- Removed parameter aEnableLEDFeedback in function IRsend::begin(bool aEnableLEDFeedback, uint_fast8_t aFeedbackLEDPin) and IRsend::begin(uint_fast8_t aSendPin, bool aEnableLEDFeedback, uint_fast8_t aFeedbackLEDPin).
+- LED feedback is always enabled for sending. It can only be disabled by using the macro NO_LED_SEND_FEEDBACK_CODE.
+- Added output for UNKNOWN protocol to printIRSendUsage().
+- Added experimental sendVelux().
+- Added sendMaranz().
+- Fixed bug in ReceiveDemo.cpp if DEBUG_BUTTON_PIN is not defined. #1306.
+- Fixed minor bugs in Denon decoder.
+- Minor bug fixes for DEBUG.
+- New handling of MARK_EXCESS_MICROS without strange rounding inconsistency.
+- Added experimental threshold decoding.
+
+# 4.4.3
+- Added USE_ACTIVE_LOW_OUTPUT_FOR_SEND_PIN to make the software aware of send LED connected between VCC and send pin.
+- Fixed backward compatibility bug for printIRResultShort(3 params).
+- Minor improvements.
+
 # 4.4.2
 - Support for SAMD51 timer3 if timer 5 is not available (Adafruit ItsyBitsy M4).
 - attachInterrupt() on SAMD has a different semantic :-(. See: https://www.arduino.cc/reference/tr/language/functions/external-interrupts/attachinterrupt/.
@@ -67,14 +87,14 @@ See also the commit log at github: https://github.com/Arduino-IRremote/Arduino-I
 - Usage of ATTinyCore pin numbering scheme e.g. PIN_PB2.
 - Added ARDUINO_ARCH_NRF52 to support Seeed XIAO nRF52840 Sense.
 - First untested support of Uno R4.
-- Extraced version macros to IRVersion.h.
+- Extracted version macros to IRVersion.h.
 
 ## 4.1.2
 - Workaround for ESP32 RTOS delay() timing bug influencing the mark() function.
 
 ## 4.1.1
 - SAMD51 use timer3 if timer5 not available.
-- Disabled #define LOCAL_DEBUG in IRReceive.hpp, which was accidently enabled at 4.1.0.
+- Disabled #define LOCAL_DEBUG in IRReceive.hpp, which was accidentally enabled at 4.1.0.
 
 ## 4.1.0
 - Fixed bug in printing durations > 64535 in printIRResultRawFormatted().
@@ -145,7 +165,7 @@ See also the commit log at github: https://github.com/Arduino-IRremote/Arduino-I
 - Improved pin mapping for TinyReceiver.
 
 ## 3.7.1
-- SendRaw now supports bufferlenght > 255.
+- SendRaw now supports buffer length > 255.
 - Improved DistanceProtocol decoder output.
 - Fixed ESP32 send bug for 2.x ESP32 cores.
 
@@ -380,7 +400,7 @@ Changes from #268 by adamlhumphreys
 - Fixed #110 Mess
 - Created Gitter Room
 - Added Gitter Badge
-- Standardised Code Base
+- Standardized Code Base
 - Clean Debug Output
 - Optimized Send Loops
 - Modularized Design

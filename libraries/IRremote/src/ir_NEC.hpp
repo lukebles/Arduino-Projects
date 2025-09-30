@@ -72,7 +72,7 @@
 // http://www.hifi-remote.com/wiki/index.php/NEC
 // https://www.sbprojects.net/knowledge/ir/nec.php
 // NEC: LSB first, <start bit><address:16> (or <address:8><inverted address:8>) <command:16><command:8><inverted command:8><stop bit>.
-// ONKYO: like NEC but force to 16 independent address and 16 bit command bits: <start bit><address:16><command:16><stop bit>
+// ONKYO (sometimes called NECext): like NEC but force to 16 independent address and 16 bit command bits: <start bit><address:16><command:16><stop bit>
 // Standard NEC sends a special fixed repeat frame.
 // NEC2: like NEC, but for repeat, the same full frame is sent after the 110 ms. I have a DVD remote with NEC2.
 // NEC and NEC 2 only differ in the repeat frames, so the protocol can only be detected correctly after the first repeat.
@@ -116,12 +116,12 @@
 #define APPLE_ADDRESS           0x87EE
 
 struct PulseDistanceWidthProtocolConstants const NECProtocolConstants PROGMEM = {NEC, NEC_KHZ, NEC_HEADER_MARK, NEC_HEADER_SPACE, NEC_BIT_MARK,
-    NEC_ONE_SPACE, NEC_BIT_MARK, NEC_ZERO_SPACE, PROTOCOL_IS_LSB_FIRST, (NEC_REPEAT_PERIOD / MICROS_IN_ONE_MILLI),
-    &sendNECSpecialRepeat};
+     NEC_ONE_SPACE, NEC_BIT_MARK, NEC_ZERO_SPACE, PROTOCOL_IS_LSB_FIRST | PROTOCOL_IS_PULSE_DISTANCE, (NEC_REPEAT_PERIOD / MICROS_IN_ONE_MILLI),
+     &sendNECSpecialRepeat};
 
 // Like NEC but repeats are full frames instead of special NEC repeats
 struct PulseDistanceWidthProtocolConstants const NEC2ProtocolConstants PROGMEM = {NEC2, NEC_KHZ, NEC_HEADER_MARK, NEC_HEADER_SPACE, NEC_BIT_MARK,
-    NEC_ONE_SPACE, NEC_BIT_MARK, NEC_ZERO_SPACE, PROTOCOL_IS_LSB_FIRST, (NEC_REPEAT_PERIOD / MICROS_IN_ONE_MILLI), nullptr};
+    NEC_ONE_SPACE, NEC_BIT_MARK, NEC_ZERO_SPACE, PROTOCOL_IS_LSB_FIRST | PROTOCOL_IS_PULSE_DISTANCE, (NEC_REPEAT_PERIOD / MICROS_IN_ONE_MILLI), nullptr};
 
 /************************************
  * Start of send and decode functions
@@ -250,14 +250,14 @@ bool IRrecv::decodeNEC() {
     }
 
     // Check header "mark" this must be done for repeat and data
-    if (!matchMark(decodedIRData.rawDataPtr->rawbuf[1], NEC_HEADER_MARK)) {
+    if (!matchMark(irparams.rawbuf[1], NEC_HEADER_MARK)) {
         return false;
     }
 
     // Check for repeat - here we have another header space length
     if (decodedIRData.rawlen == 4) {
-        if (matchSpace(decodedIRData.rawDataPtr->rawbuf[2], NEC_REPEAT_HEADER_SPACE)
-                && matchMark(decodedIRData.rawDataPtr->rawbuf[3], NEC_BIT_MARK)) {
+        if (matchSpace(irparams.rawbuf[2], NEC_REPEAT_HEADER_SPACE)
+                && matchMark(irparams.rawbuf[3], NEC_BIT_MARK)) {
             decodedIRData.flags = IRDATA_FLAGS_IS_REPEAT | IRDATA_FLAGS_IS_LSB_FIRST;
             decodedIRData.address = lastDecodedAddress;
             decodedIRData.command = lastDecodedCommand;
@@ -268,7 +268,7 @@ bool IRrecv::decodeNEC() {
     }
 
     // Check command header space
-    if (!matchSpace(decodedIRData.rawDataPtr->rawbuf[2], NEC_HEADER_SPACE)) {
+    if (!matchSpace(irparams.rawbuf[2], NEC_HEADER_SPACE)) {
 #if defined(LOCAL_DEBUG)
         Serial.print(F("NEC: "));
         Serial.println(F("Header space length is wrong"));
@@ -276,14 +276,8 @@ bool IRrecv::decodeNEC() {
         return false;
     }
 
-    // Try to decode as NEC protocol
-    if (!decodePulseDistanceWidthData_P(&NECProtocolConstants, NEC_BITS)) {
-#if defined(LOCAL_DEBUG)
-        Serial.print(F("NEC: "));
-        Serial.println(F("Decode failed"));
-#endif
-        return false;
-    }
+    // Decode as NEC protocol
+    decodePulseDistanceWidthData_P(&NECProtocolConstants, NEC_BITS);
 
     // Success
 //    decodedIRData.flags = IRDATA_FLAGS_IS_LSB_FIRST; // Not required, since this is the start value
@@ -292,7 +286,7 @@ bool IRrecv::decodeNEC() {
     decodedIRData.command = tValue.UByte.MidHighByte; // 8 bit
 
 #if defined(DECODE_ONKYO)
-    // Here only Onkyo protocol is supported -> force 16 bit address and command decoding
+    // Here only Onkyo protocol is supported -> force 16 bit address and command decoding. No NEC decoding possible!
     decodedIRData.address = tValue.UWord.LowWord; // first 16 bit
     decodedIRData.protocol = ONKYO;
     decodedIRData.command = tValue.UWord.HighWord; // 16 bit command
@@ -379,13 +373,7 @@ bool IRrecv::decodeNECMSB(decode_results *aResults) {
     }
     offset++;
 
-    if (!decodePulseDistanceWidthData(NEC_BITS, offset, NEC_BIT_MARK, NEC_ONE_SPACE, 0, PROTOCOL_IS_MSB_FIRST)) {
-#if defined(LOCAL_DEBUG)
-        Serial.print(F("NEC MSB: "));
-        Serial.println(F("Decode failed"));
-#endif
-        return false;
-    }
+    decodePulseDistanceWidthData(NEC_BITS, offset, NEC_BIT_MARK, NEC_ONE_SPACE, 0, PROTOCOL_IS_MSB_FIRST);
 
     // Stop bit
     if (!matchMark(aResults->rawbuf[offset + (2 * NEC_BITS)], NEC_BIT_MARK)) {

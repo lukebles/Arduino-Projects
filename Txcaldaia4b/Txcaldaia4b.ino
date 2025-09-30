@@ -1,177 +1,106 @@
 #include <LkRadioStructure.h>
-#include <LkMultivibrator.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
+#include <LowPower.h>          // RocketScream LowPower (AVR)
 
-// Imposta il pin al quale è collegato il bus OneWire
-#define ONE_WIRE_BUS 2
+#define LED_PIN            5
+#define TRANSMIT_PIN      12
+#define PTT_PIN           13
+#define LUCE_CALDAIA_PIN   3     // INPUT_PULLUP → OFF = LOW
 
-// Inizializza il bus OneWire e la libreria DallasTemperature
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
-
-#define LED_PIN 5
-#define TRANSMIT_PIN 12
-#define PTT_PIN 13
-#define LUCE_CALDAIA_PIN 3
-
-LkMultivibrator timerContatori(60000,ASTABLE); // timerContatori > timerSanitaria + timerTermo
-LkMultivibrator timerSanitaria(20000,MONOSTABLE);
-LkMultivibrator timerTermo(20000,MONOSTABLE);
-LkMultivibrator timerLuceCaldaiaOn(1000,ASTABLE); // ogni secondo legge se la luce del display della caldaia è acceso
-LkMultivibrator tmr_lampeggio(30,MONOSTABLE);
-
-#define SANITARIA_calda 1
-#define SANITARIA_fredda 2
-#define TERMO_calda 0
-#define TERMO_fredda 3
-
-#define NR_SENSORI 4
-float previousTemp[NR_SENSORI];
-byte stato[NR_SENSORI];
-float attualeTemp[NR_SENSORI];
-
-// float temperatura = 25.37;  // Temperatura da inviare
-// int16_t temperaturaCodificata = (int16_t)(temperatura * 100);
-
+// ---------- Payload ----------
 struct __attribute__((packed)) packet_contatori {
-    byte sender; // 1 byte
-    uint16_t luceCaldaiaOn; // 2 bytes
-    uint16_t dummy; // 2 bytes
-};
-
-struct __attribute__((packed)) packet_sanitaria {
-    byte sender; // 1 byte
-    int16_t sanitCaldaC;
-    int16_t sanitFreddaC;
-};
-
-struct __attribute__((packed)) packet_termo {
-    byte sender; // 1 byte
-    int16_t termoCaldaC;
-    int16_t termoFreddaC;
+  byte     sender;            // 1 byte
+  uint16_t luceCaldaiaOn;     // 2 bytes (contatore)
+  uint16_t a0_raw;            // 2 bytes (ADC grezzo 0..1023)
 };
 
 LkRadioStructure<packet_contatori> radio_contatori;
-LkRadioStructure<packet_sanitaria> radio_sanitaria;
-LkRadioStructure<packet_termo> radio_termo;
-
 packet_contatori ds_contatori;
-packet_sanitaria ds_sanitaria;
-packet_termo ds_termo;
 
 #define DEBUG 0
-
 #if DEBUG
-	#define prt(x) Serial.print(x);
-	#define prtn(x) Serial.println(x);
+  #define prt(x)  Serial.print(x)
+  #define prtn(x) Serial.println(x)
 #else
-	#define prt(x) 
-	#define prtn(x) 
+  #define prt(x)
+  #define prtn(x)
 #endif
 
+static uint8_t wakeSlots = 0;   // invio ogni 8 risvegli ≈ 64 s
+
+// Riduci rumore e consumi: disattiva buffer digitale su A0
+static inline void preparePins() {
+  for (uint8_t p = 0; p <= A5; p++) {
+    if (p == LED_PIN || p == TRANSMIT_PIN || p == PTT_PIN || p == LUCE_CALDAIA_PIN) continue;
+    pinMode(p, INPUT_PULLUP);
+  }
+  pinMode(LED_PIN, OUTPUT);    digitalWrite(LED_PIN, LOW);
+  pinMode(PTT_PIN, OUTPUT);    digitalWrite(PTT_PIN, LOW);
+  pinMode(LUCE_CALDAIA_PIN, INPUT_PULLUP);
+  // Disabilita buffer digitale su A0 per meno rumore
+  DIDR0 |= _BV(ADC0D);
+}
+
+static inline void blinkBrief() {
+#if !DEBUG
+  digitalWrite(LED_PIN, HIGH); delay(8); digitalWrite(LED_PIN, LOW);
+#else
+  digitalWrite(LED_PIN, HIGH); delay(40); digitalWrite(LED_PIN, LOW);
+#endif
+}
+
+static inline void radioSendNow(const packet_contatori &pkt) {
+  digitalWrite(PTT_PIN, HIGH);   // accendi TX
+  delay(8);                      // stabilizzazione modulo (adatta se serve)
+  radio_contatori.sendStructure(pkt);
+  digitalWrite(PTT_PIN, LOW);    // spegni TX
+}
+
 void setup() {
-	  // impostazioe piedini
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(PTT_PIN, OUTPUT);
-    pinMode(LUCE_CALDAIA_PIN, INPUT_PULLUP);
-    digitalWrite(PTT_PIN, HIGH);// alimenta il trasmettitore
-    // seriale
-    Serial.begin(115200);
-    delay(1500);
-    prtn();
-    prtn("start");
-    // radio
-    radio_contatori.globalSetup(2000, TRANSMIT_PIN, -1);  // Solo trasmissione
-    // stop monostabili
-    timerSanitaria.stop();
-    timerTermo.stop();
-    timerLuceCaldaiaOn.start(); // ogni secondo verifica se è acceso il led della caldaia
-    // avvio astabile
-    timerContatori.start(); 
+#if DEBUG
+  Serial.begin(115200);
+  delay(200);
+  prtn("\nUNO: wake 8s, TX ~64s, A0 raw (INTERNAL 1.1V)");
+#endif
 
+  preparePins();
 
-    // impostazioni iniziali temperatura
-    sensors.requestTemperatures();
-    for (int i=0; i < NR_SENSORI; i++){
-      attualeTemp[i] = sensors.getTempCByIndex(i);
-      previousTemp[i] = attualeTemp[i];
-    }
-    // impostazione iniziale dei vari valori-radio
-    ds_contatori.sender = 99;
-    ds_contatori.luceCaldaiaOn = 0;
-    ds_contatori.dummy = 0;
+  // --- AUMENTA SENSIBILITÀ ADC ---
+  // Usa la referenza interna 1.1V (A0 <= 1.1V!)
+  analogReference(DEFAULT);
+  //delay(5);
+  (void)analogRead(A0);   // prima lettura "di scarto" dopo cambio referenza
 
-    ds_sanitaria.sender = 100;
-    ds_sanitaria.sanitCaldaC = (int16_t)(attualeTemp[SANITARIA_calda]*100);
-    ds_sanitaria.sanitFreddaC = (int16_t)(attualeTemp[SANITARIA_fredda]*100);;
+  radio_contatori.globalSetup(2000, TRANSMIT_PIN, -1); // solo TX
 
-    ds_termo.sender = 101;
-    ds_termo.termoCaldaC = (int16_t)(attualeTemp[TERMO_calda]*100);
-    ds_termo.termoFreddaC = (int16_t)(attualeTemp[TERMO_fredda]*100);
+  ds_contatori.sender        = 99;
+  ds_contatori.luceCaldaiaOn = 0;
+  ds_contatori.a0_raw        = 0;
 }
 
 void loop() {
-
-  if (timerLuceCaldaiaOn.expired()){
-    if (!digitalRead(LUCE_CALDAIA_PIN)){
-      ds_contatori.luceCaldaiaOn += 1;
-      prtn(ds_contatori.luceCaldaiaOn);
-    }
+  // --- WAKE ogni ~8 s ---
+  bool isOff = (digitalRead(LUCE_CALDAIA_PIN) == LOW); // INPUT_PULLUP: OFF=LOW
+  if (isOff && ds_contatori.luceCaldaiaOn < 0xFFFF) {
+    ds_contatori.luceCaldaiaOn++;
   }
 
-	// ==================================
-	// ogni 60 secondi invia il resoconto
-  // ==================================
- 
-	if (timerContatori.expired()){
-		sensors.requestTemperatures();
-	    for (int i=0; i < NR_SENSORI; i++){
-	      attualeTemp[i] = sensors.getTempCByIndex(i);
-        prtn(attualeTemp[i]);
-	    }
-    //////////////////////////////////
-		//ds_contatori.luceCaldaiaOn = 9999;
-		ds_contatori.dummy = 0;		
-		radio_contatori.sendStructure(ds_contatori);
-    prt("inviate differenze contatori: ");
-    prtn(ds_contatori.luceCaldaiaOn);
-    //
-    lampeggio();
-    // avvio ritardato delle altre trasmissioni radio
-    timerSanitaria.start();
-	}
+  wakeSlots++;
+  if (wakeSlots >= 8) {         // ogni ~64 s
+    wakeSlots = 0;
 
-	if(timerSanitaria.expired()){
-		ds_sanitaria.sanitCaldaC = (int16_t)(attualeTemp[SANITARIA_calda]*100);
-		ds_sanitaria.sanitFreddaC = (int16_t)(attualeTemp[SANITARIA_fredda]*100);
-		radio_sanitaria.sendStructure(ds_sanitaria);
-    prtn("inviate temp sanitaria");
-		//
-		lampeggio();
-		// successiva tx
-		timerTermo.start(); // quello dopo
-	}
+    // Lettura A0 GREZZA (0..1023) con referenza 1.1V
+    (void)analogRead(A0);               // throw-away per stabilizzare dopo sleep
+    ds_contatori.a0_raw = analogRead(A0);
 
-	if (timerTermo.expired()){
-		ds_termo.termoCaldaC = (int16_t)(attualeTemp[TERMO_calda]*100);
-		ds_termo.termoFreddaC = (int16_t)(attualeTemp[TERMO_fredda]*100);
-		radio_termo.sendStructure(ds_termo);
-    prtn("inviate temp termo");
-		//
-		lampeggio();
-	}
-	
-	//
-	if (tmr_lampeggio.expired()){
-		digitalWrite(LED_PIN,LOW);
-	}
+    radioSendNow(ds_contatori);
+    blinkBrief();
+
+#if DEBUG
+    prt("TX cnt="); prt(ds_contatori.luceCaldaiaOn);
+    prt(" A0raw="); prtn(ds_contatori.a0_raw);
+#endif
+  }
+
+  // --- SLEEP profondo per ~8 s ---
+  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
 }
-
-void lampeggio(){
-	tmr_lampeggio.start();
-	digitalWrite(LED_PIN,HIGH);
-}
-
-
-
