@@ -14,9 +14,6 @@ LkMultivibrator timerUmidita(10000,MONOSTABLE);
 LkMultivibrator timerPressione(10000,MONOSTABLE);
 
 
-// float temperatura = 25.37;  // Temperatura da inviare
-// int16_t temperaturaCodificata = (int16_t)(temperatura * 100);
-
 struct __attribute__((packed)) packet_temperatura {
     byte sender;       // 1 byte
     float temperatura; // 2 bytes
