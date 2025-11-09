@@ -1,16 +1,19 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
-#include "LdrBlinkDetector.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include "config.h" // TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, WIFI_SSID, WIFI_PASSWORD
 
-///// //////////////////////////// BUG /////////////
-// NON RILEVA IL LAMPEGGIO DEL LED
-// O ACCESO O SPENTO
-///////////////////////////////////////////////////
+// ===== RILEVATORE LDR (nuova libreria) =====
+#include "LdrBlinkWinMV.h"   // <<-- usa questa
+LdrBlinkWinMV ldr(34);       // GPIO34 su ADC1
 
+///// //////////////////////////// NOTE /////////////
+// Ora il lampeg-gio è gestito da LdrBlinkWinMV:
+// - update() -> true quando cambia stato
+// - state()  -> LOW_STEADY / HIGH_STEADY / BLINK
+/////////////////////////////////////////////////////
 
 #define DEBUG 1
 #define LED_PIN 2
@@ -41,7 +44,6 @@ static void sendMsgImmediate(const String& chatId, const String& text) {
   bot.sendMessage(chatId, text, "");
   lastMsgMs = millis(); // opzionale: fa partire il timer del throttle
 }
-
 
 // invia subito se >=10s dall’ultimo invio; altrimenti accoda (l’ultimo messaggio vince)
 static void sendMsgThrottled(const String& chatId, const String& text) {
@@ -142,44 +144,26 @@ static void servoSpegni() {
   for (int a = PREMI_POS; a >= RIPOSO_POS; a -= 2) { servo.write(a); delay(10); }
 }
 
-// -------- LDR DETECTOR --------
-LdrBlinkDetector::Config makeDefaultCfg() {
-  LdrBlinkDetector::Config c;
-  c.pin                 = 34;        // ADC
-  c.adcBits             = 12;        // 0..4095
-  c.attenuation         = ADC_11db;  // ~0..3.1V
-  c.sampleMs            = 5;
-  c.thOn                = 1;        // regola poi da seriale se serve
-  c.thOff               = 0;
-  c.minFlashPeriodMs    = 80;
-  c.maxFlashPeriodMs    = 1000;
-  c.steadyOnMs          = 2000;
-  c.steadyOffMs         = 2000;
-  c.flashScoreTarget    = 2;
-  return c;
-}
-LdrBlinkDetector ldr(makeDefaultCfg());
-
 // -------- STATO ULTIMO COMANDO --------
 enum class LastCmd : uint8_t { NONE, ACCENDI, SPEGNI };
 LastCmd lastCmd = LastCmd::NONE;
 
 // -------- GUARDIA DI ANNUNCIO STATO --------
 static bool firstStateKnown = false;
-static LdrBlinkDetector::LightState lastAnnouncedState;
+static LdrBlinkWinMV::State lastAnnouncedState = LdrBlinkWinMV::State::UNKNOWN; // se esiste UNKNOWN; se no, lasciamo non inizializzato e proteggiamo con firstStateKnown
 
 // -------- COMPOSIZIONE TESTO STATO --------
 static String composeStatoText() {
-  using LS = LdrBlinkDetector::LightState;
-  LS s = ldr.getState();
+  using S = LdrBlinkWinMV::State;
+  S s = ldr.state();
 
-  if (s == LS::BLINKING) {
+  if (s == S::BLINK) {
     if (lastCmd == LastCmd::ACCENDI) return "NAS: in accensione";
     if (lastCmd == LastCmd::SPEGNI)  return "NAS: in spegnimento";
     return "NAS: stato lampeggiante";
   }
-  if (s == LS::OFF)       return "NAS spento";
-  if (s == LS::STEADY_ON) return "NAS acceso";
+  if (s == S::LOW_STEADY)  return "NAS spento";
+  if (s == S::HIGH_STEADY) return "NAS acceso";
   return "NAS: stato sconosciuto";
 }
 
@@ -188,9 +172,9 @@ static void sendStatoForced(const String& chatId) {
   sendMsgThrottled(chatId, composeStatoText());
 }
 
-// Solo su vero cambio di stato (callback detector)
+// Solo su vero cambio di stato (equivalente al vecchio callback)
 static void sendStatoIfStateChanged(const String& chatId,
-                                    LdrBlinkDetector::LightState newS) {
+                                    LdrBlinkWinMV::State newS) {
   if (!firstStateKnown || newS != lastAnnouncedState) {
     lastAnnouncedState = newS;
     firstStateKnown = true;
@@ -198,18 +182,14 @@ static void sendStatoIfStateChanged(const String& chatId,
   }
 }
 
-// -------- CALLBACK CAMBIO STATO LDR --------
-static void onLdrChange2(LdrBlinkDetector::LightState oldS,
-                         LdrBlinkDetector::LightState newS,
-                         int /*raw*/) {
-  using LS = LdrBlinkDetector::LightState;
+// Handler “cambio stato” (ex onLdrChange2)
+static void handleLdrChange(LdrBlinkWinMV::State oldS, LdrBlinkWinMV::State newS) {
+  using S = LdrBlinkWinMV::State;
 
-  // Nessuna notifica se non è cambiato nulla
   if (newS == oldS) return;
 
   // Entrata nel lampeggio: invia una sola volta
-  if (newS == LS::BLINKING && oldS != LS::BLINKING) {
-    // Componi messaggio coerente con l’ultimo comando
+  if (newS == S::BLINK && oldS != S::BLINK) {
     if      (lastCmd == LastCmd::ACCENDI) sendMsgThrottled(String(TELEGRAM_CHAT_ID), "NAS: in accensione");
     else if (lastCmd == LastCmd::SPEGNI)  sendMsgThrottled(String(TELEGRAM_CHAT_ID), "NAS: in spegnimento");
     else                                  sendMsgThrottled(String(TELEGRAM_CHAT_ID), "NAS: stato lampeggiante");
@@ -217,44 +197,43 @@ static void onLdrChange2(LdrBlinkDetector::LightState oldS,
   }
 
   // Uscita dal lampeggio o cambio tra stati stabili: invia stato corrente una volta
-  if (newS == LS::OFF) {
+  if (newS == S::LOW_STEADY) {
     sendMsgThrottled(String(TELEGRAM_CHAT_ID), "NAS spento");
-  } else if (newS == LS::STEADY_ON) {
+  } else if (newS == S::HIGH_STEADY) {
     sendMsgThrottled(String(TELEGRAM_CHAT_ID), "NAS acceso");
   }
 }
 
-
 // -------- COMANDI --------
 static void comando_ACCENDI(const String& chatId) {
-  using LS = LdrBlinkDetector::LightState;
+  using S = LdrBlinkWinMV::State;
   lastCmd = LastCmd::ACCENDI;
-  LS s = ldr.getState();
+  S s = ldr.state();
 
-  if (s == LS::OFF) {
+  if (s == S::LOW_STEADY) {
     // luce spenta fissa -> esegui accensione (1s)
     servoAccendi();
-  } else if (s == LS::BLINKING) {
+  } else if (s == S::BLINK) {
     // luce lampeggiante -> attendi
     sendMsgThrottled(chatId, "NAS: comando ricevuto, attendi");
-  } else { // LS::STEADY_ON
+  } else { // S::HIGH_STEADY
     // luce accesa fissa -> già acceso
     sendMsgThrottled(chatId, "NAS già acceso");
   }
 }
 
 static void comando_SPEGNI(const String& chatId) {
-  using LS = LdrBlinkDetector::LightState;
+  using S = LdrBlinkWinMV::State;
   lastCmd = LastCmd::SPEGNI;
-  LS s = ldr.getState();
+  S s = ldr.state();
 
-  if (s == LS::STEADY_ON) {
+  if (s == S::HIGH_STEADY) {
     // luce accesa fissa -> esegui spegnimento (5s)
     servoSpegni();
-  } else if (s == LS::BLINKING) {
+  } else if (s == S::BLINK) {
     // luce lampeggiante -> attendi
     sendMsgThrottled(chatId, "NAS: comando ricevuto, attendi");
-  } else { // LS::OFF
+  } else { // S::LOW_STEADY
     // luce spenta fissa -> già spento
     sendMsgThrottled(chatId, "NAS già spento");
   }
@@ -296,15 +275,15 @@ void setup() {
   servo.attach(SERVO_PIN, 500, 2400);
   servo.write(RIPOSO_POS);
 
+  // >>> nuovo detector
   ldr.begin();
-  ldr.setOnChange2(onLdrChange2);
 
   // Wi-Fi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setAutoReconnect(true);
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite(LED_PIN, SPENTO);  delay(30);
-    digitalWrite(LED_PIN, ACCESO); delay(1000);
+    digitalWrite(LED_PIN, ACCESO);  delay(1000);
     prt(".");
   }
   digitalWrite(LED_PIN, SPENTO);
@@ -312,9 +291,8 @@ void setup() {
 
   client.setInsecure(); // TLS senza CA (semplice)
 
-
   sendMsgImmediate(String(TELEGRAM_CHAT_ID),
-                 "Bot pronto (comandi: stato, accendi, spegni).");
+                   "Bot pronto (comandi: stato, accendi, spegni). NB è da sistemare la rilevazione del lampeggio del NAS");
   prtn("Pronto.");
 
   // inizializza “salute” Telegram: considera il primo poll come OK appena parte il loop
@@ -324,8 +302,14 @@ void setup() {
 void loop() {
   static unsigned long lastCheckTime = 0;
 
-  // Aggiorna il detector (genera eventuali callback)
-  ldr.update();
+  // --- Aggiorna il detector: se cambia stato, applica la logica “on change”
+  static LdrBlinkWinMV::State prev = ldr.state(); // prima lettura
+  if (ldr.update()) { // true solo al cambio
+    LdrBlinkWinMV::State nowS = ldr.state();
+    handleLdrChange(prev, nowS);                // invia messaggi corretti (una volta)
+    sendStatoIfStateChanged(String(TELEGRAM_CHAT_ID), nowS); // aggiorna “lastAnnouncedState”
+    prev = nowS;
+  }
 
   // Comandi via seriale (opzionali)
   if (Serial.available()) {
@@ -351,4 +335,3 @@ void loop() {
   // Manutenzione connessione (finestra 30 s ogni 60 s, 1 tentativo/s)
   connectionMaintenanceTick();
 }
-
