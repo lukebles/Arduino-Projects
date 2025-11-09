@@ -5,7 +5,7 @@
   - BME280 alimentato da D8: HIGH=ON, INPUT=OFF
 */
 
-#include <LkRadioStructure.h>
+#include <LkRadioStructure_RH.h>
 #include <LowPower.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -14,7 +14,7 @@
 
 // ---------- Pinout ----------
 #define TRANSMIT_PIN   12
-#define PTT_PIN        13
+#define TX_POWER_PIN        13
 #define BME_VCC_PIN     8   // <-- collega VCC del modulo BME280 qui
 
 // ---------- BME ----------
@@ -48,10 +48,10 @@ static uint8_t phase     = 0;   // 0=T, 1=P, 2=H
 
 // ---- Helpers radio ----
 static inline void radioSendNow(void (*sendFn)()) {
-  digitalWrite(PTT_PIN, HIGH);      // alimenta TX
+  digitalWrite(TX_POWER_PIN, HIGH);      // alimenta TX
   delay(8);                         // stabilizzazione
   sendFn();
-  digitalWrite(PTT_PIN, LOW);       // spegni TX
+  digitalWrite(TX_POWER_PIN, LOW);       // spegni TX
 }
 
 static packet_temperatura lastT;
@@ -104,10 +104,10 @@ static inline bool bmePowerOnAndInit() {
 // ---- Setup pin a basso consumo ----
 static inline void preparePins() {
   for (uint8_t p = 0; p <= A5; p++) {
-    if (p == TRANSMIT_PIN || p == PTT_PIN || p == SDA || p == SCL || p == BME_VCC_PIN) continue;
+    if (p == TRANSMIT_PIN || p == TX_POWER_PIN || p == SDA || p == SCL || p == BME_VCC_PIN) continue;
     pinMode(p, INPUT_PULLUP);
   }
-  pinMode(PTT_PIN, OUTPUT);  digitalWrite(PTT_PIN, LOW);  // TX sempre spento salvo invio
+  pinMode(TX_POWER_PIN, OUTPUT);  digitalWrite(TX_POWER_PIN, LOW);  // TX sempre spento salvo invio
   bmePowerOff();                                       // BME spento all'avvio
 }
 
@@ -120,7 +120,10 @@ void setup() {
   preparePins();
 
   // Radio solo TX (una init basta per tutte le strutture)
-  radioT.globalSetup(2000, TRANSMIT_PIN, -1);
+  // Radio TX: usa i pin di default interni di RH_ASK (nessun PTT gestito dalla libreria)
+  LkRadioStructure<packet_temperatura>::globalSetup(2000);
+
+  //radioT.globalSetup(2000, TRANSMIT_PIN, -1);
 
   // Sender IDs
   dsT.sender = 106;

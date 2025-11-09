@@ -168,4 +168,3 @@ ISR(INT1_vect) {
 ISR(WDT_vect) {
   wdt_int = true;
 }
-
