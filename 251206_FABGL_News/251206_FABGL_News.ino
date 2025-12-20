@@ -107,33 +107,48 @@ constexpr int NUM_ALLOWED_COMBOS = NUM_COLORS * (NUM_COLORS - 1) - FORBIDDEN_PAI
 
 // --- Pulsante "RSS successivo" ---
 const int BTN_NEXT_RSS = 33;        // pin fisico del pulsante (collegato a GND)
-const unsigned long BTN_DEBOUNCE_MS = 200;  // debounce base
 
-bool btnLastStableState = HIGH;     // con INPUT_PULLUP: "non premuto" = HIGH
-bool btnLastReading     = HIGH;
+// quanto tempo il segnale deve rimanere stabile per essere considerato valido
+const unsigned long BTN_DEBOUNCE_MS    = 40;   // 40 ms bastano
+// tempo minimo tra due pressioni valide (per evitare doppi click)
+const unsigned long BTN_MIN_INTERVAL_MS = 600; // 0,6 s
+
+bool btnLastStableState  = HIGH;     // con INPUT_PULLUP: "non premuto" = HIGH
+bool btnLastReading      = HIGH;
 unsigned long btnLastChangeTime = 0;
 
 
+
 void handleNextRSSButton() {
+  static unsigned long lastPressTime = 0;  // ultima pressione accettata
+
   unsigned long now = millis();
   int reading = digitalRead(BTN_NEXT_RSS);
 
-  // se cambia la lettura, azzero il timer di debounce
+  // Se cambia la lettura “grezza”, resetto il timer di stabilità
   if (reading != btnLastReading) {
-    btnLastChangeTime = now;
-    btnLastReading = reading;
+    btnLastReading     = reading;
+    btnLastChangeTime  = now;
   }
 
-  // se è stabile da abbastanza tempo, lo considero "stato valido"
-  if (now - btnLastChangeTime > BTN_DEBOUNCE_MS) {
+  // Se il segnale resta stabile per almeno BTN_DEBOUNCE_MS
+  if (now - btnLastChangeTime >= BTN_DEBOUNCE_MS) {
+
+    // È cambiato lo stato stabile?
     if (reading != btnLastStableState) {
       btnLastStableState = reading;
 
-      // Fronte di discesa: da HIGH (non premuto) a LOW (premuto)
+      // Fronte di discesa: HIGH -> LOW (pulsante premuto)
       if (btnLastStableState == LOW) {
-        // PULSANTE PREMUTO -> passa subito al prossimo feed
-        if (WiFi.status() == WL_CONNECTED) {
-          goToNextRSSFeed();
+
+        // Controllo anche l'intervallo minimo tra pressioni
+        if (now - lastPressTime >= BTN_MIN_INTERVAL_MS) {
+          lastPressTime = now;
+
+          // QUI avviene un solo click "logico"
+          if (WiFi.status() == WL_CONNECTED) {
+            goToNextRSSFeed();
+          }
         }
       }
     }
