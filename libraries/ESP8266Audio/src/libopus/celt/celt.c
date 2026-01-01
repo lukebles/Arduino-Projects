@@ -27,9 +27,9 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifdef __STDC__
-#include "config.h"
-#endif
+//#ifdef HAVE_CONFIG_H
+#include "../config.h"
+//#endif
 
 #define CELT_C
 

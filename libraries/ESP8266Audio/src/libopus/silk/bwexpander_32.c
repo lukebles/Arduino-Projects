@@ -25,14 +25,13 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef __STDC__
-#include "config.h"
-#endif
+//#ifdef HAVE_CONFIG_H
+#include "../config.h"
+//#endif
 
 #include "SigProc_FIX.h"
 
-/* Chirp (bandwidth expand) LP AR filter.
-   This logic is reused in _celt_lpc(). Any bug fixes should also be applied there. */
+/* Chirp (bandwidth expand) LP AR filter */
 void silk_bwexpander_32(
     opus_int32                  *ar,                /* I/O  AR filter to be expanded (without leading 1)                */
     const opus_int              d,                  /* I    Length of ar                                                */

@@ -31,12 +31,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "control.h"
 #include "typedef.h"
 #include "errors.h"
-#include "entenc.h"
-#include "entdec.h"
-
-#ifdef ENABLE_DEEP_PLC
-#include "lpcnet_private.h"
-#endif
+#include "../celt/entenc.h"
+#include "../celt/entdec.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -92,16 +88,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
 /* Decoder functions                    */
 /****************************************/
 
-
-/***********************************************/
-/* Load OSCE models from external data pointer */
-/***********************************************/
-opus_int silk_LoadOSCEModels(
-    void *decState,                                     /* O    I/O State                                       */
-    const unsigned char *data,                          /* I    pointer to binary blob                          */
-    int len                                             /* I    length of binary blob data                      */
-);
-
 /***********************************************/
 /* Get size in bytes of the Silk decoder state */
 /***********************************************/
@@ -110,12 +96,8 @@ opus_int silk_Get_Decoder_Size(                         /* O    Returns error co
 );
 
 /*************************/
-/* Init and Reset decoder */
+/* Init or Reset decoder */
 /*************************/
-opus_int silk_ResetDecoder(                              /* O    Returns error code                              */
-    void                            *decState            /* I/O  State                                           */
-);
-
 opus_int silk_InitDecoder(                              /* O    Returns error code                              */
     void                            *decState           /* I/O  State                                           */
 );
@@ -131,9 +113,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_int16                      *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-#ifdef ENABLE_DEEP_PLC
-    LPCNetPLCState                  *lpcnet,
-#endif
     int                             arch                /* I    Run-time architecture                           */
 );
 

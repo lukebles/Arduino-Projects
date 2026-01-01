@@ -269,7 +269,7 @@ String cleanNewsTitle(const String &input) {
     core.trim();
 
     String coreUpper = core;
-    coreUpper.toUpperCase();
+    //coreUpper.toUpperCase();
 
     // filtra parole indesiderate
     if (coreUpper != "DIRETTA" &&
@@ -426,40 +426,65 @@ static void decodeHtmlEntities(String &s) {
   s.replace("&#8216;", "'");
   s.replace("&#8217;", "'");
   s.replace("&#8211;", "-");
+  s.replace("&#8230;", "...");
+  // &#124; -> byte singolo 0xB3
+  char b3[2] = { (char)0xB3, '\0' };
+  s.replace("&#124;", b3);
 }
 
 // Sostituisce vocali accentate italiane con ASCII
-static void foldItalianAccents(String &s) {
-  s.replace("à", "a");
-  s.replace("è", "e");
-  s.replace("é", "e");
-  s.replace("ì", "i");
-  s.replace("ò", "o");
-  s.replace("ù", "u");
+// static void foldItalianAccents(String &s) {
+//   s.replace("à", "a");
+//   s.replace("è", "e");
+//   s.replace("é", "e");
+//   s.replace("ì", "i");
+//   s.replace("ò", "o");
+//   s.replace("ù", "u");
 
-  s.replace("À", "A");
-  s.replace("È", "E");
-  s.replace("É", "E");
-  s.replace("Ì", "I");
-  s.replace("Ò", "O");
-  s.replace("Ù", "U");
+//   s.replace("À", "A");
+//   s.replace("È", "E");
+//   s.replace("É", "E");
+//   s.replace("Ì", "I");
+//   s.replace("Ò", "O");
+//   s.replace("Ù", "U");
 
-  s.replace("ç", "c");
-  s.replace("Ç", "C");
+//   s.replace("ç", "c");
+//   s.replace("Ç", "C");
+// }
+
+// Sostituisce "token" UTF-8 con un singolo byte (codepage/charset target)
+static inline void replaceUtf8WithByte(String &s, const char *utf8, uint8_t b) {
+  char out[2];
+  out[0] = (char)b;  // byte di destinazione (anche > 0x7F)
+  out[1] = '\0';
+  s.replace(utf8, out);
 }
+
+// Sostituisce vocali accentate italiane con ASCII/codepage
+static void foldItalianAccents(String &s) {
+  replaceUtf8WithByte(s, "à", 0x85);
+  replaceUtf8WithByte(s, "è", 0x8A);
+  replaceUtf8WithByte(s, "é", 0x82);
+  replaceUtf8WithByte(s, "ì", 0x8D);
+  replaceUtf8WithByte(s, "ò", 0x95);
+  replaceUtf8WithByte(s, "ù", 0x97);
+
+  replaceUtf8WithByte(s, "À", 0x85);
+  replaceUtf8WithByte(s, "È", 0x8A);
+  replaceUtf8WithByte(s, "É", 0x90);
+  replaceUtf8WithByte(s, "Ì", 0x8D);
+  replaceUtf8WithByte(s, "Ò", 0x95);
+  replaceUtf8WithByte(s, "Ù", 0x97);
+
+  replaceUtf8WithByte(s, "ç", 0x87);
+  replaceUtf8WithByte(s, "Ç", 0x80);
+}
+
 
 // Restituisce versione solo-ASCII: elimina byte >= 0x80 dopo aver “appiattito” le accentate
 static String toASCII(String s) {
   foldItalianAccents(s);
-  String out;
-  out.reserve(s.length());
-  for (size_t i = 0; i < s.length(); ++i) {
-    char c = s[i];
-    if ((uint8_t)c < 0x80) {
-      out += c;
-    }
-  }
-  return out;
+  return s;
 }
 
 // Accorcia il pubDate RSS (es: "Sun, 07 Dec 2025 08:31:00 +0100")
@@ -641,6 +666,7 @@ void fetchAnsaNews(const char* url, const char* label)
         if (title.length() > 0) {
           title = stripCDATA(title);
           decodeHtmlEntities(title);
+          normalizeUtf8Punctuation(title);
           title = toASCII(title);
           title.trim();
           title = cleanNewsTitle(title);
@@ -942,6 +968,32 @@ void drawStaticInfo()
     setDefaultInfoColors();
   }
 }
+
+// Normalizza punteggiatura UTF-8 in caratteri semplici (o byte codepage)
+static void normalizeUtf8Punctuation(String &s) {
+  // ’  (E2 80 99) -> '
+  s.replace("\xE2\x80\x99", "'");
+
+  // opzionali ma utilissimi nei feed:
+  // ‘  (E2 80 98) -> '
+  s.replace("\xE2\x80\x98", "'");
+
+  // “  (E2 80 9C) -> "
+  s.replace("\xE2\x80\x9C", "\"");
+
+  // ”  (E2 80 9D) -> "
+  s.replace("\xE2\x80\x9D", "\"");
+
+  // – (E2 80 93) -> -
+  s.replace("\xE2\x80\x93", "-");
+
+  // — (E2 80 94) -> -
+  s.replace("\xE2\x80\x94", "-");
+
+  // … (E2 80 A6) -> ...
+  s.replace("\xE2\x80\xA6", "...");
+}
+
 
 // =====================
 //  setup / loop

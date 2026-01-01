@@ -439,7 +439,9 @@ void drawStaticInfo()
 
     s  = "Temperatura: ";
     s += meteoTemp;
-    s += " C";
+    s += " ";
+    s += (char)0xF8;
+    s += "C";
     printLine(row++, s);
 
     s  = "Umidita: ";
@@ -675,8 +677,9 @@ void drawRadioInfo()
   fmt("CALDAIA 2",  sCald2,    "(cont)",
       haveCald2, lastCald2Ms, prevCald2Ms, timeCald2);
 
-  fmt("TEMPERATURA", sTemp,    "C",
-      haveTemp, lastTempMs, prevTempMs, timeTempStr);
+fmt("TEMPERATURA", sTemp, String((char)0xF8) + "C",
+    haveTemp, lastTempMs, prevTempMs, timeTempStr);
+
 
   fmt("UMIDITA",     sUmid,    "%",
       haveUmid, lastUmidMs, prevUmidMs, timeUmidStr);

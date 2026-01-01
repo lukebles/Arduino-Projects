@@ -2,8 +2,6 @@
 // In general a user should only include the specific headers they need
 // to miniimize build times.
 
-#include "ESP8266AudioVer.h"
-
 // Input stage
 #include "AudioFileSourceBuffer.h"
 #include "AudioFileSourceFATFS.h"
@@ -43,7 +41,6 @@
 #include "AudioOutput.h"
 #include "AudioOutputI2S.h"
 #include "AudioOutputI2SNoDAC.h"
-#include "AudioOutputPWM.h"
 #include "AudioOutputMixer.h"
 #include "AudioOutputNull.h"
 #include "AudioOutputSerialWAV.h"

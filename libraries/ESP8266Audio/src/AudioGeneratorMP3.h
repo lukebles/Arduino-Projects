@@ -1,21 +1,21 @@
 /*
-    AudioGeneratorMP3
-    Wrap libmad MP3 library to play audio
+  AudioGeneratorMP3
+  Wrap libmad MP3 library to play audio
+    
+  Copyright (C) 2017  Earle F. Philhower, III
 
-    Copyright (C) 2017  Earle F. Philhower, III
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifndef _AUDIOGENERATORMP3_H
@@ -25,8 +25,9 @@
 #include "libmad/config.h"
 #include "libmad/mad.h"
 
-class AudioGeneratorMP3 : public AudioGenerator {
-public:
+class AudioGeneratorMP3 : public AudioGenerator
+{
+  public:
     AudioGeneratorMP3();
     AudioGeneratorMP3(void *preallocateSpace, int preallocateSize);
     AudioGeneratorMP3(void *buff, int buffSize, void *stream, int streamSize, void *frame, int frameSize, void *synth, int synthSize);
@@ -35,25 +36,15 @@ public:
     virtual bool loop() override;
     virtual bool stop() override;
     virtual bool isRunning() override;
-    virtual void desync() override;
+    virtual void desync () override;
 
-    static constexpr int preAllocSize() {
-        return preAllocBuffSize() + preAllocStreamSize() + preAllocFrameSize() + preAllocSynthSize();
-    }
-    static constexpr int preAllocBuffSize() {
-        return ((buffLen + 7) & ~7);
-    }
-    static constexpr int preAllocStreamSize() {
-        return ((sizeof(struct mad_stream) + 7) & ~7);
-    }
-    static constexpr int preAllocFrameSize() {
-        return (sizeof(struct mad_frame) + 7) & ~7;
-    }
-    static constexpr int preAllocSynthSize() {
-        return (sizeof(struct mad_synth) + 7) & ~7;
-    }
+    static constexpr int preAllocSize () { return preAllocBuffSize() + preAllocStreamSize() + preAllocFrameSize() + preAllocSynthSize(); }
+    static constexpr int preAllocBuffSize () { return ((buffLen + 7) & ~7); }
+    static constexpr int preAllocStreamSize () { return ((sizeof(struct mad_stream) + 7) & ~7); }
+    static constexpr int preAllocFrameSize () { return (sizeof(struct mad_frame) + 7) & ~7; }
+    static constexpr int preAllocSynthSize () { return (sizeof(struct mad_synth) + 7) & ~7; }
 
-protected:
+  protected:   
     void *preallocateSpace = nullptr;
     int preallocateSize = 0;
     void *preallocateStreamSpace = nullptr;
@@ -69,7 +60,7 @@ protected:
     int lastBuffLen;
     unsigned int lastRate;
     int lastChannels;
-
+    
     // Decoding bits
     bool madInitted;
     struct mad_stream *stream;
@@ -85,7 +76,7 @@ protected:
     bool DecodeNextFrame();
     bool GetOneSample(int16_t sample[2]);
 
-private:
+  private:
     int unrecoverable = 0;
 };
 

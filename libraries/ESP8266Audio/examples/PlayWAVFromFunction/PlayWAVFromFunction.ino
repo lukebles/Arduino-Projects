@@ -70,9 +70,7 @@ void setup() {
 
 void loop() {
   if (wav->isRunning()) {
-    if (!wav->loop()) {
-      wav->stop();
-    }
+    if (!wav->loop()) wav->stop();
   } else {
     Serial.println("function done!");
     delay(1000);
