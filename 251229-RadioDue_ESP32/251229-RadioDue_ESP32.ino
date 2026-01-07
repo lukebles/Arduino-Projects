@@ -25,7 +25,7 @@ ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 
 
 static const char *STREAM_URL = "http://icestreaming.rai.it/2.mp3";
  
-static const int BUF_SZ   = 80 * 1024;
+static const int BUF_SZ   = 96 * 1024;
 static const int CODEC_SZ = 29192;
 
 static void *preBuf   = nullptr;

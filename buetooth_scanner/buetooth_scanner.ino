@@ -1,17 +1,12 @@
-/*
- * ESP32 Classic Bluetooth Scanner – MAC, Nome, RSSI
- * Testato con core Arduino-ESP32.
- * Serial monitor a 115200 bps.
- */
-
 #include <Arduino.h>
+#include "esp_err.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gap_bt_api.h"
 
 // --------- Utility ------------
 static char *bda2str(const uint8_t* bda, char *str, size_t size) {
-  if (bda == nullptr || str == nullptr || size < 18) return nullptr;
+  if (!bda || !str || size < 18) return nullptr;
   snprintf(str, size, "%02X:%02X:%02X:%02X:%02X:%02X",
            bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
   return str;
@@ -36,119 +31,89 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
     case ESP_BT_GAP_DISC_RES_EVT: {
       char mac[18]; bda2str(param->disc_res.bda, mac, sizeof(mac));
 
-      int rssi = 0x7FFF;          // valore “non disponibile”
+      int rssi = 0x7FFF;
       const char* name_ptr = nullptr;
       uint8_t name_len = 0;
       const uint8_t* eir = nullptr;
 
-      // Leggi le proprietà scoperte
       for (int i = 0; i < param->disc_res.num_prop; i++) {
         esp_bt_gap_dev_prop_t *p = param->disc_res.prop + i;
         switch (p->type) {
-          case ESP_BT_GAP_DEV_PROP_RSSI:
-            rssi = *(int8_t*)p->val; // dBm
-            break;
-
-          case ESP_BT_GAP_DEV_PROP_BDNAME:
-            name_ptr = (const char*)p->val;
-            name_len = p->len;
-            break;
-
-          case ESP_BT_GAP_DEV_PROP_EIR:
-            eir = (const uint8_t*)p->val;
-            break;
-
-          default:
-            break;
+          case ESP_BT_GAP_DEV_PROP_RSSI:   rssi = *(int8_t*)p->val; break;
+          case ESP_BT_GAP_DEV_PROP_BDNAME: name_ptr = (const char*)p->val; name_len = p->len; break;
+          case ESP_BT_GAP_DEV_PROP_EIR:    eir = (const uint8_t*)p->val; break;
+          default: break;
         }
       }
 
-      if (!name_ptr && eir) {
-        // prova a estrarre il nome dall’EIR
-        name_ptr = get_eir_name(eir, &name_len);
-      }
+      if (!name_ptr && eir) name_ptr = get_eir_name(eir, &name_len);
 
-      // Stampa risultato formattato
+      char name_buf[249] = {0};
       if (name_ptr && name_len) {
-        // Assicura stringa terminata
-        char name_buf[249];
         size_t copy_len = min((size_t)name_len, sizeof(name_buf) - 1);
         memcpy(name_buf, name_ptr, copy_len);
-        name_buf[copy_len] = '\0';
-
-        if (rssi != 0x7FFF) {
-          Serial.printf("[BT] MAC: %s | Nome: %s | RSSI: %d dBm\n", mac, name_buf, rssi);
-        } else {
-          Serial.printf("[BT] MAC: %s | Nome: %s | RSSI: n/d\n", mac, name_buf);
-        }
       } else {
-        if (rssi != 0x7FFF) {
-          Serial.printf("[BT] MAC: %s | Nome: (sconosciuto) | RSSI: %d dBm\n", mac, rssi);
-        } else {
-          Serial.printf("[BT] MAC: %s | Nome: (sconosciuto) | RSSI: n/d\n", mac);
-        }
+        strcpy(name_buf, "(sconosciuto)");
       }
+
+      if (rssi != 0x7FFF)
+        Serial.printf("[BT] MAC: %s | Nome: %s | RSSI: %d dBm\n", mac, name_buf, rssi);
+      else
+        Serial.printf("[BT] MAC: %s | Nome: %s | RSSI: n/d\n", mac, name_buf);
+
       break;
     }
 
-    case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
-      // Quando termina, riavvia la discovery per restare sempre in scan
+    case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
       if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
-        // durata 10 secondi; modalità “general inquiry”, interlaced=0
         esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
       }
       break;
-    }
 
     default:
       break;
   }
 }
 
-// --------- Setup / Loop ------------
+static void printErr(const char* what, esp_err_t err) {
+  Serial.printf("ERRORE: %s -> %s (0x%X)\n", what, esp_err_to_name(err), (unsigned)err);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println();
   Serial.println("=== ESP32 Classic BT Scanner: MAC | Nome | RSSI ===");
 
-  // Inizializza controller in modalità Classic BT
+  // IMPORTANTISSIMO: libera la memoria BLE se vuoi usare solo Classic
+  // (se non la liberi, esp_bt_controller_init può fallire per NO_MEM)
+  esp_err_t e = esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
+  if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) { // INVALID_STATE = già rilasciata
+    printErr("esp_bt_controller_mem_release(BLE)", e);
+  }
+
   esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-  if (esp_bt_controller_init(&bt_cfg) != ESP_OK) {
-    Serial.println("ERRORE: esp_bt_controller_init");
-    return;
-  }
-  if (esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT) != ESP_OK) {
-    Serial.println("ERRORE: esp_bt_controller_enable");
-    return;
-  }
 
-  if (esp_bluedroid_init() != ESP_OK) {
-    Serial.println("ERRORE: esp_bluedroid_init");
-    return;
-  }
-  if (esp_bluedroid_enable() != ESP_OK) {
-    Serial.println("ERRORE: esp_bluedroid_enable");
-    return;
-  }
+  e = esp_bt_controller_init(&bt_cfg);
+  if (e != ESP_OK) { printErr("esp_bt_controller_init", e); return; }
 
-  // Registra callback GAP e avvia discovery
-  if (esp_bt_gap_register_callback(gap_cb) != ESP_OK) {
-    Serial.println("ERRORE: esp_bt_gap_register_callback");
-    return;
-  }
+  e = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
+  if (e != ESP_OK) { printErr("esp_bt_controller_enable(CLASSIC)", e); return; }
 
-  // Chiedi che l’inquiry riporti RSSI quando possibile
+  e = esp_bluedroid_init();
+  if (e != ESP_OK) { printErr("esp_bluedroid_init", e); return; }
+
+  e = esp_bluedroid_enable();
+  if (e != ESP_OK) { printErr("esp_bluedroid_enable", e); return; }
+
+  e = esp_bt_gap_register_callback(gap_cb);
+  if (e != ESP_OK) { printErr("esp_bt_gap_register_callback", e); return; }
+
   esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
-  // Avvio prima scansione
-  if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0) == ESP_OK) {
-    Serial.println("Scansione avviata… (riavvio automatico ogni 10s)");
-  } else {
-    Serial.println("ERRORE: esp_bt_gap_start_discovery");
-  }
+  e = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+  if (e == ESP_OK) Serial.println("Scansione avviata… (riavvio automatico ogni 10s)");
+  else printErr("esp_bt_gap_start_discovery", e);
 }
 
-void loop() {
-  // tutto gestito via callback; loop vuoto
-}
+void loop() {}

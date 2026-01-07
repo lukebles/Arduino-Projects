@@ -1,0 +1,10 @@
+// config.h.example
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define WIFI_SSID "YOUR_SSID"
+#define WIFI_PASSWORD "YOUR_PW"
+#define TELEGRAM_BOT_TOKEN "YOUR_TOKEN"
+#define TELEGRAM_CHAT_ID "YOUR_CHAT_ID"
+
+#endif
