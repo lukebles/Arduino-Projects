@@ -80,7 +80,7 @@ void setup() {
 void loop() {
   // --- WAKE ogni ~8 s ---
   bool isOff = (digitalRead(LUCE_CALDAIA_PIN) == LOW); // INPUT_PULLUP: OFF=LOW
-  if (isOff && ds_contatori.luceCaldaiaOn < 0xFFFF) {
+  if (isOff) {
     ds_contatori.luceCaldaiaOn++;
   }
 
