@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+
+  <style>
+    .nav-list { list-style:none; padding:0; margin:0; display:flex; justify-content:space-around; background:#333; }
+    .nav-list li { display:inline; }
+    .nav-list li a { display:block; color:#fff; text-align:center; padding:14px 16px; text-decoration:none; }
+    .nav-list li a:hover { background:#111; }
+  </style>
+</head>
+<body>
+  <nav class="row">
+    <div class="twelve columns">
+      <ul class="nav-list">
+        <li><a href="/" id="menuHome"></a></li>
+        <li><a href="/page1.html" id="menuTitolo1"></a></li>
+        <li><a href="/page2.html" id="menuTitolo2"></a></li>
+        <li><a href="/page3.html" id="menuTitolo3"></a></li>
+        <li><a href="/page5.html" id="menuTitolo5"></a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <p id="descrizione"></p>
+
+  <p id="lastRadio" style="position: fixed; bottom: 10px; width: 100%; text-align: center; background-color: lightgrey;"></p>
+
+  <p><button id="setTimeButton">Imposta la data e l'ora</button></p>
+  <p><button id="testAlarmButton">Test Suoneria</button></p>
+  <p>
+    <input id="powerLimitInput" type="text" maxlength="6" placeholder="Inserisci limite">
+    <button id="setPowerLimitButton">Set Power Limit</button>
+  </p>
+  <p><button id="saveButton">Memorizza</button></p>
+
+  <script>
+    WNX.initSettingsPage();
+  </script>
+</body>
+</html>

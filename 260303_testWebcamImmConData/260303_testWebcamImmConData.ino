@@ -52,6 +52,9 @@ static const int PRECAPTURE_FLUSH_FRAMES = 6;
 // Pausa tra i frame di assestamento
 static const int PRECAPTURE_FRAME_DELAY_MS = 120;
 
+// Soglia di default
+static const uint8_t BW_THRESHOLD_DEFAULT = 128;
+
 // Pagina HTML minimale compatibile con browser vecchi
 static const char INDEX_HTML[] PROGMEM = R"HTML(
 <!doctype html>
@@ -59,11 +62,27 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>XIAO ESP32S3 - BMP Capture</title>
+  <title>XIAO ESP32S3 - BMP Capture B/N</title>
   <style>
     body {
       font-family: Arial, Helvetica, sans-serif;
       margin: 16px;
+    }
+
+    .controls {
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 16px;
+      margin-right: 8px;
+    }
+
+    input {
+      font-size: 18px;
+      padding: 6px 8px;
+      width: 80px;
+      margin-right: 10px;
     }
 
     button {
@@ -129,7 +148,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   </style>
 </head>
 <body>
-  <button id="btn" type="button">Premi pulsante esterno + cattura immagine</button>
+
+  <div class="controls">
+    <label for="thr">Soglia B/N:</label>
+    <input id="thr" type="number" min="0" max="255" value="128">
+    <button id="btn" type="button">Premi pulsante esterno + cattura immagine</button>
+  </div>
 
   <div class="img-wrap">
     <img id="shot" alt="immagine" src="">
@@ -143,11 +167,23 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 (function () {
   var btn = document.getElementById('btn');
   var shot = document.getElementById('shot');
+  var thr = document.getElementById('thr');
+
+  function clampThreshold(v) {
+    var n = parseInt(v, 10);
+    if (isNaN(n)) n = 128;
+    if (n < 0) n = 0;
+    if (n > 255) n = 255;
+    return n;
+  }
 
   function onClick() {
     btn.disabled = true;
 
-    shot.src = '/capture.bmp?t=' + (new Date().getTime());
+    var t = clampThreshold(thr.value);
+    thr.value = t;
+
+    shot.src = '/capture.bmp?thr=' + t + '&t=' + (new Date().getTime());
 
     window.setTimeout(function () {
       btn.disabled = false;
@@ -168,21 +204,23 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 )HTML";
 
 // =========================
-// Funzioni disegno RGB565
+// Funzioni disegno GRAYSCALE
 // =========================
-static inline void setPixelRGB565(camera_fb_t *fb, int x, int y, uint16_t color) {
+static inline void setPixelGray(camera_fb_t *fb, int x, int y, uint8_t color) {
   if (!fb) return;
+  if (fb->format != PIXFORMAT_GRAYSCALE) return;
   if (x < 0 || y < 0 || x >= (int)fb->width || y >= (int)fb->height) return;
 
-  uint16_t *pix = (uint16_t *)fb->buf;
-  pix[y * fb->width + x] = color;
+  fb->buf[y * fb->width + x] = color;
 }
 
-static void fillRectRGB565(camera_fb_t *fb, int x, int y, int w, int h, uint16_t color) {
+static void fillRectGray(camera_fb_t *fb, int x, int y, int w, int h, uint8_t color) {
   if (!fb) return;
+  if (fb->format != PIXFORMAT_GRAYSCALE) return;
+
   for (int yy = y; yy < y + h; yy++) {
     for (int xx = x; xx < x + w; xx++) {
-      setPixelRGB565(fb, xx, yy, color);
+      setPixelGray(fb, xx, yy, color);
     }
   }
 }
@@ -339,7 +377,7 @@ static const uint8_t* getGlyph5x7(char c) {
   }
 }
 
-static void drawChar5x7(camera_fb_t *fb, int x, int y, char c, uint16_t color, uint16_t bg, bool useBg = true) {
+static void drawChar5x7Gray(camera_fb_t *fb, int x, int y, char c, uint8_t color, uint8_t bg, bool useBg = true) {
   const uint8_t *glyph = getGlyph5x7(c);
 
   for (int row = 0; row < 7; row++) {
@@ -347,23 +385,23 @@ static void drawChar5x7(camera_fb_t *fb, int x, int y, char c, uint16_t color, u
     for (int col = 0; col < 5; col++) {
       bool on = rowBits & (1 << (4 - col));
       if (on) {
-        setPixelRGB565(fb, x + col, y + row, color);
+        setPixelGray(fb, x + col, y + row, color);
       } else if (useBg) {
-        setPixelRGB565(fb, x + col, y + row, bg);
+        setPixelGray(fb, x + col, y + row, bg);
       }
     }
   }
 
   if (useBg) {
     for (int row = 0; row < 7; row++) {
-      setPixelRGB565(fb, x + 5, y + row, bg);
+      setPixelGray(fb, x + 5, y + row, bg);
     }
   }
 }
 
-static void drawString5x7(camera_fb_t *fb, int x, int y, const String &txt, uint16_t color, uint16_t bg, bool useBg = true) {
+static void drawString5x7Gray(camera_fb_t *fb, int x, int y, const String &txt, uint8_t color, uint8_t bg, bool useBg = true) {
   for (size_t i = 0; i < txt.length(); i++) {
-    drawChar5x7(fb, x + (int)i * 6, y, txt[i], color, bg, useBg);
+    drawChar5x7Gray(fb, x + (int)i * 6, y, txt[i], color, bg, useBg);
   }
 }
 
@@ -407,10 +445,12 @@ static String getDateTimeString() {
   return String(buf);
 }
 
-static void drawDateTimeBottomRight(camera_fb_t *fb) {
+static void drawDateTimeBottomRightGray(camera_fb_t *fb, uint8_t thresholdUsed) {
   if (!fb) return;
 
   String txt = getDateTimeString();
+  txt += " T:";
+  txt += String((int)thresholdUsed);
 
   int textW = txt.length() * 6;
   int textH = 7;
@@ -421,11 +461,11 @@ static void drawDateTimeBottomRight(camera_fb_t *fb) {
   int x = fb->width  - boxW - 6;
   int y = fb->height - boxH - 6;
 
-  uint16_t black = 0x0000;
-  uint16_t white = 0xFFFF;
+  uint8_t black = 0;
+  uint8_t white = 255;
 
-  fillRectRGB565(fb, x, y, boxW, boxH, black);
-  drawString5x7(fb, x + pad, y + pad, txt, white, black, true);
+  fillRectGray(fb, x, y, boxW, boxH, black);
+  drawString5x7Gray(fb, x + pad, y + pad, txt, white, black, true);
 }
 
 // =========================
@@ -455,12 +495,39 @@ static void flushOldFrames(int count, int delayMs) {
 }
 
 static camera_fb_t* captureFreshFrame() {
-  // Prima svuota eventuali frame vecchi o rimasti in coda
   flushOldFrames(PRECAPTURE_FLUSH_FRAMES, PRECAPTURE_FRAME_DELAY_MS);
+  return esp_camera_fb_get();
+}
 
-  // Poi cattura il frame "vero"
-  camera_fb_t *fb = esp_camera_fb_get();
-  return fb;
+// =========================
+// Binarizzazione su grayscale
+// =========================
+static void thresholdToBlackAndWhiteGray(camera_fb_t *fb, uint8_t threshold) {
+  if (!fb) return;
+  if (fb->format != PIXFORMAT_GRAYSCALE) return;
+
+  int total = fb->width * fb->height;
+
+  for (int i = 0; i < total; i++) {
+    uint8_t g = fb->buf[i];
+    fb->buf[i] = (g >= threshold) ? 255 : 0;
+  }
+}
+
+static uint8_t getThresholdFromRequest() {
+  uint8_t threshold = BW_THRESHOLD_DEFAULT;
+
+  if (server.hasArg("thr")) {
+    String s = server.arg("thr");
+    int v = s.toInt();
+
+    if (v < 0) v = 0;
+    if (v > 255) v = 255;
+
+    threshold = (uint8_t)v;
+  }
+
+  return threshold;
 }
 
 // =========================
@@ -480,7 +547,13 @@ static void handle_capture_bmp() {
     return;
   }
 
-  drawDateTimeBottomRight(fb);
+  uint8_t threshold = getThresholdFromRequest();
+
+  // Applica soglia sulla grayscale -> immagine binaria pura
+  thresholdToBlackAndWhiteGray(fb, threshold);
+
+  // Disegna data/ora dopo la soglia così restano bianche su fondo nero
+  drawDateTimeBottomRightGray(fb, threshold);
 
   uint8_t *bmp_buf = nullptr;
   size_t bmp_len = 0;
@@ -539,16 +612,14 @@ static bool setup_camera_bmp() {
   config.pin_reset    = RESET_GPIO_NUM;
 
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_RGB565;
+
+  // Acquisizione in scala di grigi
+  config.pixel_format = PIXFORMAT_GRAYSCALE;
   config.frame_size   = CAMERA_FRAME_SIZE;
 
   config.jpeg_quality = 12;
-
-  // 2 frame buffer aiutano a non restare "bloccati" su un frame vecchio
   config.fb_count     = 2;
   config.fb_location  = CAMERA_FB_IN_PSRAM;
-
-  // prova a prendere sempre il frame più recente
   config.grab_mode    = CAMERA_GRAB_LATEST;
 
   esp_err_t err = esp_camera_init(&config);
@@ -562,47 +633,28 @@ static bool setup_camera_bmp() {
     s->set_hmirror(s, 0);
     s->set_vflip(s, 1);
 
-    // Controlli base immagine
     s->set_brightness(s, 0);
     s->set_contrast(s, 0);
     s->set_saturation(s, 0);
     s->set_sharpness(s, 0);
 
-    // Bilanciamento bianco automatico
     s->set_whitebal(s, 1);
     s->set_awb_gain(s, 1);
 
-    // Guadagno automatico
     s->set_gain_ctrl(s, 1);
-
-    // Esposizione automatica
     s->set_exposure_ctrl(s, 1);
-
-    // Algoritmo AEC migliorato
     s->set_aec2(s, 1);
-
-    // Livello esposizione: se è ancora troppo chiara prova -2
     s->set_ae_level(s, -1);
-
-    // Limita un po' il gain massimo per evitare immagini troppo "sparate"
-    // Se la build non accetta questo enum, commenta questa riga
     s->set_gainceiling(s, GAINCEILING_4X);
 
-    // Disattiva effetti particolari
     s->set_special_effect(s, 0);
     s->set_lenc(s, 1);
     s->set_dcw(s, 1);
     s->set_bpc(s, 1);
     s->set_wpc(s, 1);
-
-    // Valori manuali lasciati in automatico, quindi NON usati:
-    // s->set_agc_gain(s, ...);
-    // s->set_aec_value(s, ...);
   }
 
-  // Assestamento iniziale dopo init camera
   flushOldFrames(8, 120);
-
   return true;
 }
 

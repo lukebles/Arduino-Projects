@@ -7,8 +7,8 @@ L’uscita audio “analogica” sfrutta il DAC interno dell’ESP32: l’audio 
 
 Quindi: per replicare l’esperienza “funzionante” di quel progetto, la combo più coerente è:
 
-ESP32 core 1.0.6 (o comunque < 2.0.0) come raccomanda AZ-Delivery 
-ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 2022)
+ESP32 core 1.0.6 (o comunque < 2.0.0) come raccomanda AZ-Delivery (SCHEDE esp32 by esxpressif)
+ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 2022) (LIBRERIE)
 */
 #include <WiFi.h>
 
@@ -23,7 +23,7 @@ ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 
 
 #define LED_PIN 2
 
-static const char *STREAM_URL = "http://icestreaming.rai.it/2.mp3";
+static const char *STREAM_URL = "http://192.168.1.40:19090/rai2"; // "http://icestreaming.rai.it/2.mp3";
  
 static const int BUF_SZ   = 96 * 1024;
 static const int CODEC_SZ = 29192;

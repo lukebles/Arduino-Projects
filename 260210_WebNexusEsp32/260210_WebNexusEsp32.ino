@@ -1,18 +1,17 @@
 /*
-  WebNexus ESP32 - single .ino
-  - AP mode (auto channel selection)
-  - AsyncWebServer + AsyncWebSocket on same port 80  => ws://host/ws
-  - LittleFS serve static files from /data
-  - Preferences (NVS) for powerLimit
-  - Ring buffers for Instant/Hour/Day
-  - Binary persistence /data.bin with header + version + basic checksum
-  - JSON via ArduinoJson (static buffer)
-  - Fallback HTTP endpoints for old browsers:
-      GET /api/instant
-      GET /api/hours
-      GET /api/days
-      GET /api/powerLimit
-      GET /api/last
+  WebNexus ESP32 - ESP32 core 3.3.7 ready
+  VERSIONE RADIO DIRETTA
+
+  Questo sketch sostituisce la catena:
+    modulo radio -> Arduino UNO -> seriale -> ESP32
+
+  con:
+    modulo radio -> ESP32
+
+  ma ricrea internamente lo stesso DataPacket che prima arrivava via seriale:
+    0xFF + DataPacket { activeDiff, reactiveDiff, timeDiff }
+
+  In questo modo la logica web rimane compatibile con il progetto originale.
 */
 
 #include <Arduino.h>
@@ -27,17 +26,35 @@
 #include <TimeLib.h>
 
 #include <LkMultivibrator.h>
+#include "LkRadioStructure_RH.h"
+
+#include <memory>
+#include <math.h>
 
 // ====================== CONFIG ======================
-static const char* AP_SSID     = "sid2";       // personalizza (Luca/Marco)
-static const char* AP_PASS     = "pw12345678"; // >= 8 chars
+static const char* AP_SSID     = "sid3";
+static const char* AP_PASS     = "pw12345678";   // >= 8 chars
 
 static const uint32_t RADIO_TIMEOUT_MS = 27000;
 static const uint32_t SAVE_INTERVAL_MS = 8UL * 60UL * 60UL * 1000UL; // 8 ore
+static const uint32_t WS_CLEANUP_MS    = 5000;
 
 static const int MAX_DATA_POINTS = 31;
 
-// ================ DATA STRUCTURES ====================
+// ====================== RADIO =======================
+// speed = 2000 bps
+// TX pin = 22 (non usato)
+// RX pin = 21 (DOUT modulo RF)
+// PTT pin = 23 (non usato)
+
+struct DummyPayload {
+  uint8_t dummy;
+};
+
+using RxRadio = LkRadioStructure<DummyPayload>;
+RxRadio radio;
+
+// ================== DATA STRUCTURES ==================
 struct DataInstant {
   uint16_t activePower;
   uint16_t reactivePower;
@@ -70,7 +87,8 @@ static Preferences prefs;
 
 static LkMultivibrator radioCheck(RADIO_TIMEOUT_MS, MONOSTABLE);
 
-static uint32_t lastSaveTime = 0;
+static uint32_t lastSaveTime   = 0;
+static uint32_t lastWsCleanup  = 0;
 
 static bool ultimoDatoRadioAffidabile = true;
 static int  potenza = 0;
@@ -86,33 +104,60 @@ static uint8_t ist_head = 0;  static bool ist_full = false;
 static uint8_t hr_head  = 0;  static bool hr_full  = false;
 static uint8_t dy_head  = 0;  static bool dy_full  = false;
 
-#define WNX_MAGIC 0x31584E57UL  // 'WNX1' in little-endian: W N X 1
+#define WNX_MAGIC 0x31584E57UL  // 'WNX1' little-endian
 
+// per ricostruire il timeDiff come faceva l'UNO
+static bool     havePrevElectricPacket = false;
+static uint32_t prevElectricPacketMs   = 0;
 
 // ====================== HELPERS ======================
-static float roundToTens(float v) { return roundf(v / 10.f) * 10.f; }
+static float roundToTens(float v) {
+  return roundf(v / 10.0f) * 10.0f;
+}
 
 static const char* wday3(int wday) {
   static const char* a[] = {"DOM","LUN","MAR","MER","GIO","VEN","SAB"};
-  return a[(wday - 1) % 7];
+  if (wday < 1 || wday > 7) return "---";
+  return a[wday - 1];
 }
+
 static const char* mon3(int m) {
   static const char* a[] = {"GEN","FEB","MAR","APR","MAG","GIU","LUG","AGO","SET","OTT","NOV","DIC"};
-  return a[(m - 1) % 12];
+  if (m < 1 || m > 12) return "---";
+  return a[m - 1];
 }
 
 static void formatTime_radio(time_t t, char* b, size_t n) {
+  if (t == 0) {
+    snprintf(b, n, "--/--/---- --:--:--");
+    return;
+  }
   snprintf(b, n, "%s %02d/%02d/%04d %02d:%02d:%02d",
            wday3(weekday(t)), day(t), month(t), year(t), hour(t), minute(t), second(t));
 }
+
 static void formatTime_istant(time_t t, char* b, size_t n) {
+  if (t == 0) {
+    snprintf(b, n, "--:--:--");
+    return;
+  }
   snprintf(b, n, "%02d:%02d:%02d", hour(t), minute(t), second(t));
 }
+
 static void formatTime_hours(time_t t, char* b, size_t n) {
+  if (t == 0) {
+    snprintf(b, n, "--/--/---- --:--");
+    return;
+  }
   snprintf(b, n, "%s %02d/%02d/%04d %02d:%02d",
            wday3(weekday(t)), day(t), month(t), year(t), hour(t), 0);
 }
+
 static void formatTime_days(time_t t, char* b, size_t n) {
+  if (t == 0) {
+    snprintf(b, n, "-- --- ---- ---");
+    return;
+  }
   snprintf(b, n, "%02d %s %04d %s", day(t), mon3(month(t)), year(t), wday3(weekday(t)));
 }
 
@@ -122,49 +167,45 @@ static void setPotenza(int v) { potenza = v; }
 // ====================== WIFI (AP) ====================
 static int findBestChannel(int n) {
   int channels[13] = {0};
+
   for (int i = 0; i < n; i++) {
     int ch = WiFi.channel(i);
-    if (ch >= 1 && ch <= 13) channels[ch - 1]++;
+    if (ch >= 1 && ch <= 13) {
+      channels[ch - 1]++;
+    }
   }
-  int best = 1, minN = channels[0];
+
+  int best = 1;
+  int minN = channels[0];
+
   for (int i = 1; i < 13; i++) {
-    if (channels[i] < minN) { minN = channels[i]; best = i + 1; }
+    if (channels[i] < minN) {
+      minN = channels[i];
+      best = i + 1;
+    }
   }
+
   Serial.printf("Best channel: %d (nets=%d)\n", best, minN);
   return best;
 }
 
 static void setupWiFiAP() {
   WiFi.mode(WIFI_AP);
-  int n = WiFi.scanNetworks();
+
+  int n = WiFi.scanNetworks(false, true);
   int ch = findBestChannel(n);
-  WiFi.softAP(AP_SSID, AP_PASS, ch);
-  Serial.printf("AP up: %s ch=%d ip=%s\n", AP_SSID, ch, WiFi.softAPIP().toString().c_str());
-}
+  WiFi.scanDelete();
 
-// ====================== SERIAL PACKET =================
-static bool serialdatapacket_ready() {
-  while (Serial.available()) {
-    if (Serial.peek() == 0xFF) {
-      Serial.read(); // sync
-      uint32_t start = millis();
-      while (Serial.available() < (int)sizeof(DataPacket)) {
-        if (millis() - start > 120) return false;
-      }
-      return true;
-    } else {
-      Serial.read(); // scarta
-    }
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch);
+  if (!ok) {
+    Serial.println("softAP failed");
+    return;
   }
-  return false;
-}
 
-static DataPacket read_serialdatapacket() {
-  DataPacket p{};
-  if (Serial.available() >= (int)sizeof(DataPacket)) {
-    Serial.readBytes((uint8_t*)&p, sizeof(p));
-  }
-  return p;
+  Serial.printf("AP up: %s ch=%d ip=%s\n",
+                AP_SSID,
+                ch,
+                WiFi.softAPIP().toString().c_str());
 }
 
 // ====================== RING BUFFERS ==================
@@ -175,6 +216,11 @@ static void ring_push_instant(uint16_t diff_a, uint16_t diff_r, uint32_t timedif
   float activePower   = roundToTens((diff_a * 3600.0f) / dt_s);
   float reactivePower = roundToTens((diff_r * 3600.0f) / dt_s);
 
+  if (activePower < 0) activePower = 0;
+  if (reactivePower < 0) reactivePower = 0;
+  if (activePower > 65535.0f) activePower = 65535.0f;
+  if (reactivePower > 65535.0f) reactivePower = 65535.0f;
+
   istantPoints[ist_head].activePower   = (uint16_t)activePower;
   istantPoints[ist_head].reactivePower = (uint16_t)reactivePower;
   istantPoints[ist_head].timestamp     = now();
@@ -183,19 +229,22 @@ static void ring_push_instant(uint16_t diff_a, uint16_t diff_r, uint32_t timedif
   setPotenza((int)activePower);
 
   ist_head++;
-  if (ist_head >= MAX_DATA_POINTS) { ist_head = 0; ist_full = true; }
+  if (ist_head >= MAX_DATA_POINTS) {
+    ist_head = 0;
+    ist_full = true;
+  }
 }
 
 static void ring_push_hours(uint16_t diff_a, uint16_t diff_r) {
   time_t cnow = now();
   int cy = year(cnow), cm = month(cnow), cd = day(cnow), ch = hour(cnow);
 
-  // cerca se esiste già la stessa ora nel ring
   int count = hr_full ? MAX_DATA_POINTS : hr_head;
   for (int i = 0; i < count; i++) {
     int idx = hr_full ? (hr_head + i) % MAX_DATA_POINTS : i;
     time_t t = hoursPoints[idx].timestampH;
-    if (year(t)==cy && month(t)==cm && day(t)==cd && hour(t)==ch) {
+
+    if (t != 0 && year(t) == cy && month(t) == cm && day(t) == cd && hour(t) == ch) {
       hoursPoints[idx].diff_a += diff_a;
       hoursPoints[idx].diff_r += diff_r;
       return;
@@ -207,7 +256,10 @@ static void ring_push_hours(uint16_t diff_a, uint16_t diff_r) {
   hoursPoints[hr_head].diff_r = diff_r;
 
   hr_head++;
-  if (hr_head >= MAX_DATA_POINTS) { hr_head = 0; hr_full = true; }
+  if (hr_head >= MAX_DATA_POINTS) {
+    hr_head = 0;
+    hr_full = true;
+  }
 }
 
 static void ring_push_days(uint16_t diff_a, uint16_t diff_r) {
@@ -218,7 +270,8 @@ static void ring_push_days(uint16_t diff_a, uint16_t diff_r) {
   for (int i = 0; i < count; i++) {
     int idx = dy_full ? (dy_head + i) % MAX_DATA_POINTS : i;
     time_t t = daysPoints[idx].timestampD;
-    if (year(t)==cy && month(t)==cm && day(t)==cd) {
+
+    if (t != 0 && year(t) == cy && month(t) == cm && day(t) == cd) {
       daysPoints[idx].diff_a += diff_a;
       daysPoints[idx].diff_r += diff_r;
       return;
@@ -230,109 +283,198 @@ static void ring_push_days(uint16_t diff_a, uint16_t diff_r) {
   daysPoints[dy_head].diff_r = diff_r;
 
   dy_head++;
-  if (dy_head >= MAX_DATA_POINTS) { dy_head = 0; dy_full = true; }
+  if (dy_head >= MAX_DATA_POINTS) {
+    dy_head = 0;
+    dy_full = true;
+  }
+}
+
+// ====================== RADIO -> DATAPACKET ==========
+static bool buildDataPacketFromRadio(const uint8_t* data, uint8_t len, DataPacket& p) {
+  // Almeno 5 byte: 4 dati + 1 byte ID dispositivo
+  if (len < 5) {
+    return false;
+  }
+
+  // Come nel tuo sketch di test, prendiamo gli ultimi 5 byte
+  const uint8_t* payloadBytes = data + (len - 5);
+
+  uint8_t b0 = payloadBytes[0];
+  uint8_t b1 = payloadBytes[1];
+  uint8_t b2 = payloadBytes[2];
+  uint8_t b3 = payloadBytes[3];
+  uint8_t dispositivo = payloadBytes[4];
+
+  // Solo pacchetto elettrico
+  if (dispositivo != 0x0B) {
+    return false;
+  }
+
+  // Questi NON vanno interpretati come potenze assolute.
+  // Vanno passati come faceva l'UNO:
+  //   activeDiff, reactiveDiff
+  p.activeDiff   = ((uint16_t)b0 << 8) | b1;
+  p.reactiveDiff = ((uint16_t)b2 << 8) | b3;
+
+  uint32_t nowMs = millis();
+  if (!havePrevElectricPacket) {
+    havePrevElectricPacket = true;
+    prevElectricPacketMs = nowMs;
+    p.timeDiff = 1000; // primo pacchetto: valore plausibile per evitare 0
+  } else {
+    p.timeDiff = nowMs - prevElectricPacketMs;
+    prevElectricPacketMs = nowMs;
+
+    if (p.timeDiff == 0) {
+      p.timeDiff = 1;
+    }
+  }
+
+  return true;
+}
+
+static void processRadioMessage(const uint8_t* data, uint8_t len) {
+  DataPacket p{};
+
+  if (!buildDataPacketFromRadio(data, len, p)) {
+    return;
+  }
+
+  setAffidabilitaDato(true);
+  radioCheck.start();
+
+  ring_push_hours(p.activeDiff, p.reactiveDiff);
+  ring_push_days (p.activeDiff, p.reactiveDiff);
+  ring_push_instant(p.activeDiff, p.reactiveDiff, p.timeDiff);
+
+  Serial.print(F("RX elettrico diffA="));
+  Serial.print(p.activeDiff);
+  Serial.print(F(" diffR="));
+  Serial.print(p.reactiveDiff);
+  Serial.print(F(" timeDiff="));
+  Serial.println(p.timeDiff);
+
+  ws_broadcast_last();
 }
 
 // ====================== PERSISTENCE ===================
-// Simple header with basic checksum to avoid loading garbage
 struct DataFileHeader {
-  uint32_t magic;     // 'WNX1'
-  uint16_t version;   // 1
-  uint16_t reserved;  // 0
+  uint32_t magic;
+  uint16_t version;
+  uint16_t reserved;
   uint32_t payloadLen;
-  uint32_t checksum;  // simple additive checksum
+  uint32_t checksum;
 };
 
 static uint32_t simpleChecksum(const uint8_t* p, size_t n) {
   uint32_t s = 0;
-  for (size_t i = 0; i < n; i++) s = (s + p[i]) * 1664525u + 1013904223u;
+  for (size_t i = 0; i < n; i++) {
+    s = (s + p[i]) * 1664525u + 1013904223u;
+  }
   return s;
 }
 
+struct Payload {
+  DataInstant     inst[MAX_DATA_POINTS];
+  DataEnergyHours hours[MAX_DATA_POINTS];
+  DataEnergyDays  days[MAX_DATA_POINTS];
+  uint8_t ist_head; bool ist_full;
+  uint8_t hr_head;  bool hr_full;
+  uint8_t dy_head;  bool dy_full;
+};
+
 static void saveData() {
-  // payload = arrays + ring state
-  struct Payload {
-    DataInstant     inst[MAX_DATA_POINTS];
-    DataEnergyHours hours[MAX_DATA_POINTS];
-    DataEnergyDays  days[MAX_DATA_POINTS];
-    uint8_t ist_head; bool ist_full;
-    uint8_t hr_head;  bool hr_full;
-    uint8_t dy_head;  bool dy_full;
-  } payload;
+  Payload payload{};
 
   memcpy(payload.inst,  istantPoints, sizeof(istantPoints));
   memcpy(payload.hours, hoursPoints,  sizeof(hoursPoints));
   memcpy(payload.days,  daysPoints,   sizeof(daysPoints));
+
   payload.ist_head = ist_head; payload.ist_full = ist_full;
   payload.hr_head  = hr_head;  payload.hr_full  = hr_full;
   payload.dy_head  = dy_head;  payload.dy_full  = dy_full;
 
-  const uint8_t* pb = (const uint8_t*)&payload;
+  const uint8_t* pb = reinterpret_cast<const uint8_t*>(&payload);
   const uint32_t plen = (uint32_t)sizeof(payload);
 
-  DataFileHeader h;
-  h.magic = 0x31584E57UL; // 'WNX1' little-endian safe-ish (WNX1)
+  DataFileHeader h{};
+  h.magic = WNX_MAGIC;
   h.version = 1;
   h.reserved = 0;
   h.payloadLen = plen;
   h.checksum = simpleChecksum(pb, plen);
 
   File f = LittleFS.open("/data.bin", "w");
-  if (!f) { Serial.println("saveData: open fail"); return; }
-  f.write((const uint8_t*)&h, sizeof(h));
-  f.write(pb, plen);
+  if (!f) {
+    Serial.println("saveData: open fail");
+    return;
+  }
+
+  size_t w1 = f.write(reinterpret_cast<const uint8_t*>(&h), sizeof(h));
+  size_t w2 = f.write(pb, plen);
   f.close();
+
+  if (w1 != sizeof(h) || w2 != plen) {
+    Serial.println("saveData: short write");
+    return;
+  }
+
   Serial.println("Data saved");
 }
 
 static void loadData() {
   File f = LittleFS.open("/data.bin", "r");
-  if (!f) { Serial.println("loadData: missing"); return; }
-
-  DataFileHeader h{};
-  if (f.read((uint8_t*)&h, sizeof(h)) != sizeof(h)) {
-    Serial.println("loadData: bad header");
-    f.close(); return;
-  }
-
-  if (h.magic != 0x31584E57UL || h.version != 1) {
-    Serial.println("loadData: wrong magic/version");
-    f.close(); return;
-  }
-
-  if (h.payloadLen > 200000) { // sanity
-    Serial.println("loadData: payload too big");
-    f.close(); return;
-  }
-
-  std::unique_ptr<uint8_t[]> buf(new uint8_t[h.payloadLen]);
-  if (!buf) { Serial.println("loadData: oom"); f.close(); return; }
-
-  int r = f.read(buf.get(), h.payloadLen);
-  f.close();
-  if (r != (int)h.payloadLen) { Serial.println("loadData: short read"); return; }
-
-  uint32_t cs = simpleChecksum(buf.get(), h.payloadLen);
-  if (cs != h.checksum) { Serial.println("loadData: checksum mismatch"); return; }
-
-  struct Payload {
-    DataInstant     inst[MAX_DATA_POINTS];
-    DataEnergyHours hours[MAX_DATA_POINTS];
-    DataEnergyDays  days[MAX_DATA_POINTS];
-    uint8_t ist_head; bool ist_full;
-    uint8_t hr_head;  bool hr_full;
-    uint8_t dy_head;  bool dy_full;
-  };
-
-  if (h.payloadLen != sizeof(Payload)) {
-    Serial.println("loadData: payload size mismatch (struct changed?)");
+  if (!f) {
+    Serial.println("loadData: missing");
     return;
   }
 
-  Payload* p = (Payload*)buf.get();
-  memcpy(istantPoints, p->inst, sizeof(istantPoints));
+  DataFileHeader h{};
+  if (f.read(reinterpret_cast<uint8_t*>(&h), sizeof(h)) != sizeof(h)) {
+    Serial.println("loadData: bad header");
+    f.close();
+    return;
+  }
+
+  if (h.magic != WNX_MAGIC || h.version != 1) {
+    Serial.println("loadData: wrong magic/version");
+    f.close();
+    return;
+  }
+
+  if (h.payloadLen != sizeof(Payload)) {
+    Serial.println("loadData: payload size mismatch");
+    f.close();
+    return;
+  }
+
+  std::unique_ptr<uint8_t[]> buf(new uint8_t[h.payloadLen]);
+  if (!buf) {
+    Serial.println("loadData: oom");
+    f.close();
+    return;
+  }
+
+  int r = f.read(buf.get(), h.payloadLen);
+  f.close();
+
+  if (r != (int)h.payloadLen) {
+    Serial.println("loadData: short read");
+    return;
+  }
+
+  uint32_t cs = simpleChecksum(buf.get(), h.payloadLen);
+  if (cs != h.checksum) {
+    Serial.println("loadData: checksum mismatch");
+    return;
+  }
+
+  Payload* p = reinterpret_cast<Payload*>(buf.get());
+
+  memcpy(istantPoints, p->inst,  sizeof(istantPoints));
   memcpy(hoursPoints,  p->hours, sizeof(hoursPoints));
-  memcpy(daysPoints,   p->days, sizeof(daysPoints));
+  memcpy(daysPoints,   p->days,  sizeof(daysPoints));
+
   ist_head = p->ist_head; ist_full = p->ist_full;
   hr_head  = p->hr_head;  hr_full  = p->hr_full;
   dy_head  = p->dy_head;  dy_full  = p->dy_full;
@@ -344,26 +486,27 @@ static void loadData() {
 static void ws_send_powerLimit(AsyncWebSocketClient* c) {
   StaticJsonDocument<96> doc;
   doc["powerLimit"] = powerLimitValue;
+
   char out[128];
   size_t n = serializeJson(doc, out, sizeof(out));
   c->text(out, n);
 }
 
 static void ws_send_last(AsyncWebSocketClient* c) {
-  // last instant = head-1
   int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
   if (count <= 0) return;
 
   int last = (ist_head == 0) ? (MAX_DATA_POINTS - 1) : (ist_head - 1);
-  char ts[20], tslong[30];
+
+  char ts[20], tslong[32];
   formatTime_istant(istantPoints[last].timestamp, ts, sizeof(ts));
-  formatTime_radio (istantPoints[last].timestamp, tslong, sizeof(tslong));
+  formatTime_radio(istantPoints[last].timestamp, tslong, sizeof(tslong));
 
   StaticJsonDocument<192> doc;
-  doc["activePower"] = istantPoints[last].activePower;
+  doc["activePower"]   = istantPoints[last].activePower;
   doc["reactivePower"] = istantPoints[last].reactivePower;
-  doc["timeDiff"] = istantPoints[last].timeDiff;
-  doc["timestamp"] = ts;
+  doc["timeDiff"]      = istantPoints[last].timeDiff;
+  doc["timestamp"]     = ts;
   doc["timestampLong"] = tslong;
 
   char out[256];
@@ -373,19 +516,21 @@ static void ws_send_last(AsyncWebSocketClient* c) {
 
 static void ws_broadcast_last() {
   if (ws.count() == 0) return;
+
   int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
   if (count <= 0) return;
 
   int last = (ist_head == 0) ? (MAX_DATA_POINTS - 1) : (ist_head - 1);
-  char ts[20], tslong[30];
+
+  char ts[20], tslong[32];
   formatTime_istant(istantPoints[last].timestamp, ts, sizeof(ts));
-  formatTime_radio (istantPoints[last].timestamp, tslong, sizeof(tslong));
+  formatTime_radio(istantPoints[last].timestamp, tslong, sizeof(tslong));
 
   StaticJsonDocument<192> doc;
-  doc["activePower"] = istantPoints[last].activePower;
+  doc["activePower"]   = istantPoints[last].activePower;
   doc["reactivePower"] = istantPoints[last].reactivePower;
-  doc["timeDiff"] = istantPoints[last].timeDiff;
-  doc["timestamp"] = ts;
+  doc["timeDiff"]      = istantPoints[last].timeDiff;
+  doc["timestamp"]     = ts;
   doc["timestampLong"] = tslong;
 
   char out[256];
@@ -394,33 +539,26 @@ static void ws_broadcast_last() {
 }
 
 static void ws_send_instant_array(AsyncWebSocketClient* c) {
-  // 31 oggetti -> usa un buffer abbastanza grande
-  // JSON compatto: [{"activePower":..,"reactivePower":..,"timeDiff":..,"timestamp":".."},...]
-  StaticJsonDocument<8192> doc; // ok per 31 record piccoli
+  StaticJsonDocument<8192> doc;
   JsonArray arr = doc.to<JsonArray>();
 
   int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
-  for (int i = 0; i < MAX_DATA_POINTS; i++) {
-    // se non hai ancora dati, manda comunque 31 righe coerenti
-    int idx;
-    if (count < MAX_DATA_POINTS) {
-      idx = i; // ma qui potresti avere timestamp=0; va bene
-    } else {
-      idx = (ist_head + i) % MAX_DATA_POINTS; // in ordine cronologico
-    }
+
+  for (int i = 0; i < count; i++) {
+    int idx = ist_full ? ((ist_head + i) % MAX_DATA_POINTS) : i;
 
     char ts[20];
     formatTime_istant(istantPoints[idx].timestamp, ts, sizeof(ts));
 
     JsonObject o = arr.createNestedObject();
-    o["activePower"] = istantPoints[idx].activePower;
+    o["activePower"]   = istantPoints[idx].activePower;
     o["reactivePower"] = istantPoints[idx].reactivePower;
-    o["timeDiff"] = istantPoints[idx].timeDiff;
-    o["timestamp"] = ts;
+    o["timeDiff"]      = istantPoints[idx].timeDiff;
+    o["timestamp"]     = ts;
   }
 
-  // stream verso client (evita buffer enormi)
   String out;
+  out.reserve(4096);
   serializeJson(arr, out);
   c->text(out);
 }
@@ -429,18 +567,22 @@ static void ws_send_hours_array(AsyncWebSocketClient* c) {
   StaticJsonDocument<8192> doc;
   JsonArray arr = doc.to<JsonArray>();
 
-  for (int i = 0; i < MAX_DATA_POINTS; i++) {
-    int idx = hr_full ? (hr_head + i) % MAX_DATA_POINTS : i;
+  int count = hr_full ? MAX_DATA_POINTS : (int)hr_head;
+
+  for (int i = 0; i < count; i++) {
+    int idx = hr_full ? ((hr_head + i) % MAX_DATA_POINTS) : i;
+
     char ts[26];
     formatTime_hours(hoursPoints[idx].timestampH, ts, sizeof(ts));
 
     JsonObject o = arr.createNestedObject();
-    o["activeEnergy"] = hoursPoints[idx].diff_a;
+    o["activeEnergy"]   = hoursPoints[idx].diff_a;
     o["reactiveEnergy"] = hoursPoints[idx].diff_r;
-    o["timestamp"] = ts;
+    o["timestamp"]      = ts;
   }
 
   String out;
+  out.reserve(4096);
   serializeJson(arr, out);
   c->text(out);
 }
@@ -449,134 +591,162 @@ static void ws_send_days_array(AsyncWebSocketClient* c) {
   StaticJsonDocument<8192> doc;
   JsonArray arr = doc.to<JsonArray>();
 
-  for (int i = 0; i < MAX_DATA_POINTS; i++) {
-    int idx = dy_full ? (dy_head + i) % MAX_DATA_POINTS : i;
+  int count = dy_full ? MAX_DATA_POINTS : (int)dy_head;
+
+  for (int i = 0; i < count; i++) {
+    int idx = dy_full ? ((dy_head + i) % MAX_DATA_POINTS) : i;
+
     char ts[26];
     formatTime_days(daysPoints[idx].timestampD, ts, sizeof(ts));
 
     JsonObject o = arr.createNestedObject();
-    o["activeEnergy"] = daysPoints[idx].diff_a;
+    o["activeEnergy"]   = daysPoints[idx].diff_a;
     o["reactiveEnergy"] = daysPoints[idx].diff_r;
-    o["timestamp"] = ts;
+    o["timestamp"]      = ts;
   }
 
   String out;
+  out.reserve(4096);
   serializeJson(arr, out);
   c->text(out);
 }
 
-// ====================== HTTP API (fallback) ===========
+// ====================== HTTP API ======================
 static void http_send_json(AsyncWebServerRequest* req, const String& payload) {
   AsyncWebServerResponse* r = req->beginResponse(200, "application/json; charset=utf-8", payload);
-  // per cache: in LAN puoi anche cacheare Chart/config; per API no
   r->addHeader("Cache-Control", "no-store");
   req->send(r);
 }
 
 static void setupHttpApi() {
-  server.on("/api/powerLimit", HTTP_GET, [](AsyncWebServerRequest* req){
+  server.on("/api/powerLimit", HTTP_GET, [](AsyncWebServerRequest* req) {
     StaticJsonDocument<96> doc;
     doc["powerLimit"] = powerLimitValue;
-    String out; serializeJson(doc, out);
+    String out;
+    serializeJson(doc, out);
     http_send_json(req, out);
   });
 
-  server.on("/api/last", HTTP_GET, [](AsyncWebServerRequest* req){
+  server.on("/api/last", HTTP_GET, [](AsyncWebServerRequest* req) {
     int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
-    if (count <= 0) { req->send(204); return; }
+    if (count <= 0) {
+      req->send(204);
+      return;
+    }
+
     int last = (ist_head == 0) ? (MAX_DATA_POINTS - 1) : (ist_head - 1);
-    char ts[20], tslong[30];
+
+    char ts[20], tslong[32];
     formatTime_istant(istantPoints[last].timestamp, ts, sizeof(ts));
-    formatTime_radio (istantPoints[last].timestamp, tslong, sizeof(tslong));
+    formatTime_radio(istantPoints[last].timestamp, tslong, sizeof(tslong));
 
     StaticJsonDocument<192> doc;
-    doc["activePower"] = istantPoints[last].activePower;
+    doc["activePower"]   = istantPoints[last].activePower;
     doc["reactivePower"] = istantPoints[last].reactivePower;
-    doc["timeDiff"] = istantPoints[last].timeDiff;
-    doc["timestamp"] = ts;
+    doc["timeDiff"]      = istantPoints[last].timeDiff;
+    doc["timestamp"]     = ts;
     doc["timestampLong"] = tslong;
 
-    String out; serializeJson(doc, out);
+    String out;
+    serializeJson(doc, out);
     http_send_json(req, out);
   });
 
-  server.on("/api/instant", HTTP_GET, [](AsyncWebServerRequest* req){
+  server.on("/api/instant", HTTP_GET, [](AsyncWebServerRequest* req) {
     StaticJsonDocument<8192> doc;
     JsonArray arr = doc.to<JsonArray>();
+
     int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
 
-    for (int i = 0; i < MAX_DATA_POINTS; i++) {
-      int idx = (count >= MAX_DATA_POINTS) ? ((ist_head + i) % MAX_DATA_POINTS) : i;
+    for (int i = 0; i < count; i++) {
+      int idx = ist_full ? ((ist_head + i) % MAX_DATA_POINTS) : i;
+
       char ts[20];
       formatTime_istant(istantPoints[idx].timestamp, ts, sizeof(ts));
+
       JsonObject o = arr.createNestedObject();
-      o["activePower"] = istantPoints[idx].activePower;
+      o["activePower"]   = istantPoints[idx].activePower;
       o["reactivePower"] = istantPoints[idx].reactivePower;
-      o["timeDiff"] = istantPoints[idx].timeDiff;
-      o["timestamp"] = ts;
+      o["timeDiff"]      = istantPoints[idx].timeDiff;
+      o["timestamp"]     = ts;
     }
 
-    String out; serializeJson(arr, out);
+    String out;
+    serializeJson(arr, out);
     http_send_json(req, out);
   });
 
-  server.on("/api/hours", HTTP_GET, [](AsyncWebServerRequest* req){
+  server.on("/api/hours", HTTP_GET, [](AsyncWebServerRequest* req) {
     StaticJsonDocument<8192> doc;
     JsonArray arr = doc.to<JsonArray>();
-    for (int i = 0; i < MAX_DATA_POINTS; i++) {
+
+    int count = hr_full ? MAX_DATA_POINTS : (int)hr_head;
+
+    for (int i = 0; i < count; i++) {
       int idx = hr_full ? ((hr_head + i) % MAX_DATA_POINTS) : i;
+
       char ts[26];
       formatTime_hours(hoursPoints[idx].timestampH, ts, sizeof(ts));
+
       JsonObject o = arr.createNestedObject();
-      o["activeEnergy"] = hoursPoints[idx].diff_a;
+      o["activeEnergy"]   = hoursPoints[idx].diff_a;
       o["reactiveEnergy"] = hoursPoints[idx].diff_r;
-      o["timestamp"] = ts;
+      o["timestamp"]      = ts;
     }
-    String out; serializeJson(arr, out);
+
+    String out;
+    serializeJson(arr, out);
     http_send_json(req, out);
   });
 
-  server.on("/api/days", HTTP_GET, [](AsyncWebServerRequest* req){
+  server.on("/api/days", HTTP_GET, [](AsyncWebServerRequest* req) {
     StaticJsonDocument<8192> doc;
     JsonArray arr = doc.to<JsonArray>();
-    for (int i = 0; i < MAX_DATA_POINTS; i++) {
+
+    int count = dy_full ? MAX_DATA_POINTS : (int)dy_head;
+
+    for (int i = 0; i < count; i++) {
       int idx = dy_full ? ((dy_head + i) % MAX_DATA_POINTS) : i;
+
       char ts[26];
       formatTime_days(daysPoints[idx].timestampD, ts, sizeof(ts));
+
       JsonObject o = arr.createNestedObject();
-      o["activeEnergy"] = daysPoints[idx].diff_a;
+      o["activeEnergy"]   = daysPoints[idx].diff_a;
       o["reactiveEnergy"] = daysPoints[idx].diff_r;
-      o["timestamp"] = ts;
+      o["timestamp"]      = ts;
     }
-    String out; serializeJson(arr, out);
+
+    String out;
+    serializeJson(arr, out);
     http_send_json(req, out);
   });
 }
 
 // ====================== WEBSOCKET EVENT ===============
-static void onWsEvent(AsyncWebSocket* server,
+static void onWsEvent(AsyncWebSocket* serverPtr,
                       AsyncWebSocketClient* client,
                       AwsEventType type,
                       void* arg,
                       uint8_t* data,
                       size_t len) {
+  (void)serverPtr;
+
   if (type == WS_EVT_CONNECT) {
-    // opzionale: manda subito timestamp last
     ws_send_last(client);
     return;
   }
+
   if (type != WS_EVT_DATA) return;
 
-  AwsFrameInfo* info = (AwsFrameInfo*)arg;
+  AwsFrameInfo* info = reinterpret_cast<AwsFrameInfo*>(arg);
   if (!info->final || info->index != 0 || info->len != len) return;
   if (info->opcode != WS_TEXT) return;
 
-  // message text
   String msg;
-  msg.reserve(len + 1);
-  for (size_t i = 0; i < len; i++) msg += (char)data[i];
+  msg.reserve(len);
+  msg.concat(reinterpret_cast<const char*>(data), len);
 
-  // comandi compatibili con i tuoi attuali
   if (msg == "getPowerData") {
     ws_send_instant_array(client);
 
@@ -592,48 +762,47 @@ static void onWsEvent(AsyncWebSocket* server,
   } else if (msg.startsWith("POWER-LIMIT=")) {
     powerLimitValue = msg.substring(12).toInt();
     prefs.putInt("powLimit", powerLimitValue);
-    // inoltra a MultiCatch (se ti serve)
     Serial.println(msg);
 
   } else if (msg.startsWith("setTime:")) {
     String s = msg.substring(8);
-    tm tm{};
+
+    tm tmv{};
     if (sscanf(s.c_str(), "%d-%d-%d %d:%d:%d",
-               &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-               &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
-      tm.tm_year -= 1900;
-      tm.tm_mon  -= 1;
-      tm.tm_isdst = 0;
-      time_t t = mktime(&tm);
-      setTime(t);
-      client->text("Time updated successfully");
-      Serial.println("DATETIME-OK");
+               &tmv.tm_year, &tmv.tm_mon, &tmv.tm_mday,
+               &tmv.tm_hour, &tmv.tm_min, &tmv.tm_sec) == 6) {
+      tmv.tm_year -= 1900;
+      tmv.tm_mon  -= 1;
+      tmv.tm_isdst = 0;
+
+      time_t t = mktime(&tmv);
+      if (t > 0) {
+        setTime(t);
+        client->text("Time updated successfully");
+        Serial.println("DATETIME-OK");
+      }
     }
 
   } else if (msg.startsWith("ALARM-TEST")) {
     Serial.println(msg);
 
-  } else if (msg.startsWith("SAVE")) {
+  } else if (msg == "SAVE") {
     saveData();
   }
 }
 
 // ====================== WEB SERVER ====================
 static void setupWebServer() {
-  // static
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
-  // endpoint “megane” come prima
-  server.on("/megane.html", HTTP_GET, [](AsyncWebServerRequest* req){
-    String responseText = String(potenza) + "-" + String(ultimoDatoRadioAffidabile);
+  server.on("/megane.html", HTTP_GET, [](AsyncWebServerRequest* req) {
+    String responseText = String(potenza) + "-" + String(ultimoDatoRadioAffidabile ? 1 : 0);
     req->send(200, "text/plain; charset=utf-8", responseText);
     Serial.println("AUTOmegane");
   });
 
-  // HTTP API fallback
   setupHttpApi();
 
-  // WebSocket on same server/port
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
 
@@ -643,9 +812,12 @@ static void setupWebServer() {
 // ====================== SETUP/LOOP ====================
 void setup() {
   Serial.begin(115200);
-  while (!Serial) {;}
 
-  // tempo iniziale (poi può essere aggiornato via WS)
+  uint32_t serialWaitStart = millis();
+  while (!Serial && (millis() - serialWaitStart < 2000)) {
+    delay(10);
+  }
+
   setTime(18, 0, 0, 1, 5, 2024);
 
   if (!LittleFS.begin(true)) {
@@ -653,21 +825,16 @@ void setup() {
     return;
   }
 
-  // Preferences
   prefs.begin("webnexus", false);
   powerLimitValue = prefs.getInt("powLimit", 3990);
 
   loadData();
 
-  // se hai un timestamp sensato, impostalo
-  // (se timestamp=0, TimeLib resta al setTime sopra)
-  // Prendo l’ultimo “con senso”: preferisco last instant se presente
-  // (non perfetto ma robusto)
   {
     int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
     if (count > 0) {
       int last = (ist_head == 0) ? (MAX_DATA_POINTS - 1) : (ist_head - 1);
-      if (istantPoints[last].timestamp > 1700000000) { // sanity ~ 2023+
+      if (istantPoints[last].timestamp > 1700000000) {
         setTime(istantPoints[last].timestamp);
       }
     }
@@ -676,12 +843,25 @@ void setup() {
   setupWiFiAP();
   setupWebServer();
 
+  RxRadio::globalSetup(
+    2000,
+    22,
+    21,
+    23,
+    false
+  );
+
+  Serial.println(F("Radio in ascolto..."));
+
   lastSaveTime = millis();
+  lastWsCleanup = millis();
 }
 
 void loop() {
-  // AsyncWebServer non richiede loop, ma ws cleanup sì
-  ws.cleanupClients();
+  if (millis() - lastWsCleanup >= WS_CLEANUP_MS) {
+    ws.cleanupClients();
+    lastWsCleanup = millis();
+  }
 
   if (radioCheck.expired()) {
     setAffidabilitaDato(false);
@@ -692,16 +872,13 @@ void loop() {
     lastSaveTime = millis();
   }
 
-  if (serialdatapacket_ready()) {
-    setAffidabilitaDato(true);
-    radioCheck.start();
+  if (radio.haveRawMessage()) {
+    uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
+    uint8_t len = 0;
 
-    DataPacket p = read_serialdatapacket();
-
-    ring_push_hours(p.activeDiff, p.reactiveDiff);
-    ring_push_days (p.activeDiff, p.reactiveDiff);
-    ring_push_instant(p.activeDiff, p.reactiveDiff, p.timeDiff);
-
-    ws_broadcast_last();
+    radio.getRawBuffer(buf, len);
+    processRadioMessage(buf, len);
   }
+
+  delay(1);
 }

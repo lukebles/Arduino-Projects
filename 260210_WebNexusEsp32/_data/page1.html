@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+
+  <script src="/Chart.min.js"></script>
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+
+  <style>
+    .nav-list { list-style:none; padding:0; margin:0; display:flex; justify-content:space-around; background:#333; }
+    .nav-list li { display:inline; }
+    .nav-list li a { display:block; color:#fff; text-align:center; padding:14px 16px; text-decoration:none; }
+    .nav-list li a:hover { background:#111; }
+  </style>
+</head>
+<body>
+  <nav class="row">
+    <div class="twelve columns">
+      <ul class="nav-list">
+        <li><a href="/" id="menuHome"></a></li>
+        <li><a href="/page1.html" id="menuTitolo1"></a></li>
+        <li><a href="/page2.html" id="menuTitolo2"></a></li>
+        <li><a href="/page3.html" id="menuTitolo3"></a></li>
+        <li><a href="/page5.html" id="menuTitolo5"></a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <p id="descrizione"></p>
+  <p id="lastRadio" style="background-color: lightgrey;"></p>
+  <canvas id="myChart" width="400" height="200"></canvas>
+
+  <script>
+    WNX.initChartPage({
+      pageKey: "p1",
+      wsCommand: "getHourEnergy",
+      httpUrl: "/api/hours",
+      labelMode: "hours",
+      colorMultiplier: 1,
+      useAveragePlugin: true
+    });
+  </script>
+</body>
+</html>
