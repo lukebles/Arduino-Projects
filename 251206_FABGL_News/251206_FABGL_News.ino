@@ -13,6 +13,38 @@
   - Aggiorna orologio ogni secondo SENZA sfarfallamento
 */
 
+// istruzioni di compilazione:
+// ================================
+// esp32 by Espressif Systems: 2.0.4
+// Tools → Board → ESP32 Arduino → ESP32 Dev Module
+// FabGL 1.0.9
+/*
+Board: ESP32 Dev Module
+Upload Speed: 921600 oppure 115200
+CPU Frequency: 240 MHz
+Flash Frequency: 80 MHz
+Flash Mode: QIO
+Flash Size: 4MB
+Partition Scheme: Default 4MB with spiffs
+PSRAM: Disabled
+Core Debug Level: None
+Port: la porta USB del tuo ESP32
+*/
+/*
+  FabGL WiFi + News ANSA homepage (no flicker)
+
+  - Connessione WiFi usando WIFI_SSID / WIFI_PASSWORD da config.h
+  - Sync ora via NTP (Europa/Roma)
+  - Fetch RSS ANSA homepage (ansait_rss.xml)
+  - Mostra:
+      Riga 0  : data/ora locale
+      Riga 1+ : WiFi, ultimo accesso, news ANSA
+        per ogni news:
+          riga data/ora notizia
+          una o più righe di titolo, con word-wrap
+  - Aggiorna orologio ogni secondo SENZA sfarfallamento
+*/
+
 #include "fabgl.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -109,52 +141,54 @@ constexpr int NUM_ALLOWED_COMBOS = NUM_COLORS * (NUM_COLORS - 1) - FORBIDDEN_PAI
 const int BTN_NEXT_RSS = 33;        // pin fisico del pulsante (collegato a GND)
 
 // quanto tempo il segnale deve rimanere stabile per essere considerato valido
-const unsigned long BTN_DEBOUNCE_MS    = 40;   // 40 ms bastano
+const unsigned long BTN_DEBOUNCE_MS    = 100;   // 40 ms bastano
 // tempo minimo tra due pressioni valide (per evitare doppi click)
-const unsigned long BTN_MIN_INTERVAL_MS = 600; // 0,6 s
+const unsigned long BTN_MIN_INTERVAL_MS = 2000; // 0,6 s
 
 bool btnLastStableState  = HIGH;     // con INPUT_PULLUP: "non premuto" = HIGH
 bool btnLastReading      = HIGH;
 unsigned long btnLastChangeTime = 0;
 
 
-
 void handleNextRSSButton() {
-  static unsigned long lastPressTime = 0;  // ultima pressione accettata
+  static bool buttonWasReleased = true;
+  static unsigned long pressStartTime = 0;
+  static unsigned long lastAcceptedPress = 0;
 
   unsigned long now = millis();
   int reading = digitalRead(BTN_NEXT_RSS);
 
-  // Se cambia la lettura “grezza”, resetto il timer di stabilità
-  if (reading != btnLastReading) {
-    btnLastReading     = reading;
-    btnLastChangeTime  = now;
+  // Pulsante rilasciato
+  if (reading == HIGH) {
+    buttonWasReleased = true;
+    pressStartTime = 0;
+    return;
   }
 
-  // Se il segnale resta stabile per almeno BTN_DEBOUNCE_MS
-  if (now - btnLastChangeTime >= BTN_DEBOUNCE_MS) {
+  // Pulsante premuto
+  if (reading == LOW && buttonWasReleased) {
 
-    // È cambiato lo stato stabile?
-    if (reading != btnLastStableState) {
-      btnLastStableState = reading;
+    // prima volta che lo vedo premuto
+    if (pressStartTime == 0) {
+      pressStartTime = now;
+      return;
+    }
 
-      // Fronte di discesa: HIGH -> LOW (pulsante premuto)
-      if (btnLastStableState == LOW) {
+    // deve restare premuto stabile per BTN_DEBOUNCE_MS
+    if (now - pressStartTime >= BTN_DEBOUNCE_MS) {
 
-        // Controllo anche l'intervallo minimo tra pressioni
-        if (now - lastPressTime >= BTN_MIN_INTERVAL_MS) {
-          lastPressTime = now;
+      // evita doppi avanzamenti ravvicinati
+      if (now - lastAcceptedPress >= BTN_MIN_INTERVAL_MS) {
+        lastAcceptedPress = now;
+        buttonWasReleased = false;
 
-          // QUI avviene un solo click "logico"
-          if (WiFi.status() == WL_CONNECTED) {
-            goToNextRSSFeed();
-          }
+        if (WiFi.status() == WL_CONNECTED) {
+          goToNextRSSFeed();
         }
       }
     }
   }
 }
-
 
 void goToNextRSSFeed() {
   unsigned long now = millis();

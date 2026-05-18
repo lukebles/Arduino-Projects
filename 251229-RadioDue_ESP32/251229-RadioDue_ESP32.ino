@@ -8,7 +8,7 @@ L’uscita audio “analogica” sfrutta il DAC interno dell’ESP32: l’audio 
 Quindi: per replicare l’esperienza “funzionante” di quel progetto, la combo più coerente è:
 
 ESP32 core 1.0.6 (o comunque < 2.0.0) come raccomanda AZ-Delivery (SCHEDE esp32 by esxpressif)
-ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 2022) (LIBRERIE)
+ESP8266Audio 1.9.5 Earle Philhower (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 2022) (LIBRERIE)
 */
 #include <WiFi.h>
 
@@ -23,9 +23,9 @@ ESP8266Audio 1.9.5 (era disponibile prima/attorno a marzo 2022; 1.9.7 è giugno 
 
 #define LED_PIN 2
 
-static const char *STREAM_URL = "http://192.168.1.40:19090/rai2"; // "http://icestreaming.rai.it/2.mp3";
+static const char *STREAM_URL = "http://192.168.1.65:8000/linein.mp3"; //"http://icestreaming.rai.it/2.mp3"; // "http://icestreaming.rai.it/2.mp3"; http://192.168.1.40:19090/rai2;
  
-static const int BUF_SZ   = 96 * 1024;
+static const int BUF_SZ   = 96 * 1024; 
 static const int CODEC_SZ = 29192;
 
 static void *preBuf   = nullptr;
@@ -38,10 +38,13 @@ static AudioOutputI2S           *out     = nullptr;
 
 // contatore campioni (diagnostica)
 static volatile uint32_t g_samples = 0;
+static bool audioMuted = true;
 
+static volatile uint32_t lastDecodeError = 0;
+static volatile bool decoderErrorActive = false;
 
 // ===== DEBUG =====
-#define DEBUG 0
+#define DEBUG 1
 #if DEBUG
   #define prt(x)   Serial.print(x)
   #define prtn(x)  Serial.println(x)
@@ -55,7 +58,16 @@ static volatile uint32_t g_samples = 0;
 // callback chiamata quando l’audio viene effettivamente “spinto” verso l’output
 static void audioStatusCB(void *cbData, int code, const char *string) {
   (void)cbData;
-  prtf("AUDIO STATUS code=%d msg=%s\n", code, string ? string : "");
+
+  prtf("AUDIO STATUS code=%d msg=%s\n",
+       code,
+       string ? string : "");
+
+  // Errori MP3 importanti
+  if (code == 257 || code == 565) {
+    lastDecodeError = millis();
+    decoderErrorActive = true;
+  }
 }
 
 static void stopAudio() {
@@ -77,6 +89,7 @@ static bool startAudio() {
   decoder->RegisterStatusCB(audioStatusCB, nullptr);
 
   bool ok = decoder->begin(buff, out);
+  delay(500);
   prtf("Decoder begin: %s (heap=%u)\n", ok ? "OK" : "FAIL", ESP.getFreeHeap());
   return ok;
 }
@@ -111,8 +124,8 @@ void setup() {
   // DAC interno
   out = new AudioOutputI2S(0, 1);
 
-  // ESCLUDI “audio troppo basso”:
-  out->SetGain(0.8);
+  // all'avvio l'audio è OFF
+  out->SetGain(0.0);
 
   // Se disponibile nella tua versione, PROVA a forzare mono:
   // out->SetOutputModeMono(true);
@@ -125,25 +138,89 @@ void setup() {
 
 void loop() {
   static uint32_t lastDbg = 0;
+  static uint32_t lastAudioOk = millis();
+  static uint32_t lastRestart = 0;
+
+  static bool audioMuted = false;
+  static uint32_t muteUntil = 0;
 
   if (decoder && decoder->isRunning()) {
-    if (!decoder->loop()) {
-      prtn("decoder->loop() false -> restart stream");
-      startAudio();
+    if (decoder->loop()) {
+      lastAudioOk = millis();
+    } else {
+      if (millis() - lastAudioOk > 10000 && millis() - lastRestart > 10000) {
+        audioMuted = true;
+        if (out) out->SetGain(0.0);
+
+        lastRestart = millis();
+        prtn("audio fermo da troppo tempo -> restart stream");
+        startAudio();
+      }
     }
   } else {
-    prtn("decoder not running -> restart stream");
-    startAudio();
+    if (millis() - lastRestart > 10000) {
+      audioMuted = true;
+      if (out) out->SetGain(0.0);
+
+      lastRestart = millis();
+      prtn("decoder not running -> restart stream");
+      startAudio();
+    }
   }
 
-  // DBG 1 volta al secondo: fill e pos
+  uint32_t fill = buff ? buff->getFillLevel() : 0;
+  uint32_t pos  = buff ? buff->getPos() : 0;
+
+  const uint32_t FILL_LOW  = 10;
+  const uint32_t FILL_HIGH = (BUF_SZ * 3) / 4;
+
+  // =====================================================
+  // ERRORE DECODER MP3 -> mute per almeno 3000 ms
+  // =====================================================
+  if (decoderErrorActive) {
+    decoderErrorActive = false;
+    muteUntil = millis() + 3000;
+
+    if (!audioMuted) {
+      audioMuted = true;
+      if (out) out->SetGain(0.0);
+      prtn("DECODER ERROR -> audio mutato");
+    }
+  }
+
+  // =====================================================
+  // BUFFER BASSO -> mute
+  // =====================================================
+  if (!audioMuted && fill < FILL_LOW) {
+    audioMuted = true;
+    if (out) out->SetGain(0.0);
+    prtn("BUFFER BASSO -> audio mutato");
+  }
+
+  // =====================================================
+  // RIATTIVAZIONE AUDIO
+  // =====================================================
+  if (audioMuted) {
+    bool muteTimeExpired = millis() > muteUntil;
+    bool bufferOk = fill > FILL_HIGH;
+
+    if (muteTimeExpired && bufferOk) {
+      audioMuted = false;
+      if (out) out->SetGain(0.8);
+      prtn("AUDIO RIATTIVATO");
+    }
+  }
+
   if (millis() - lastDbg > 1000) {
     lastDbg = millis();
-    uint32_t fill = buff ? buff->getFillLevel() : 0;
-    uint32_t pos  = buff ? buff->getPos() : 0;
-    prtf("DBG running=%d fill=%u pos=%u heap=%u\n",
-                  (decoder && decoder->isRunning()) ? 1 : 0,
-                  fill, pos, ESP.getFreeHeap());
+
+    prtf("DBG running=%d fill=%u pos=%u heap=%u maxAlloc=%u muted=%d\n",
+         (decoder && decoder->isRunning()) ? 1 : 0,
+         fill,
+         pos,
+         ESP.getFreeHeap(),
+         ESP.getMaxAllocHeap(),
+         audioMuted ? 1 : 0);
   }
 
   delay(1);
