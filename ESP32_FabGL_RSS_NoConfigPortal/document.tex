@@ -1,0 +1,516 @@
+% !TEX TS-program = lualatex
+% !TEX encoding = UTF-8 Unicode
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage[italian]{babel}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{titlesec}
+
+\geometry{
+	margin=2.2cm
+}
+
+\setmainfont{Latin Modern Roman}
+\setsansfont{Latin Modern Sans}
+\setmonofont{Latin Modern Mono}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	urlcolor=blue
+}
+
+\setlist[itemize]{itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{itemsep=2pt, topsep=4pt}
+
+\lstdefinestyle{codice}{
+	basicstyle=\ttfamily\small,
+	breaklines=true,
+	frame=single,
+	columns=fullflexible,
+	backgroundcolor=\color{gray!8}
+}
+
+\title{Istruzioni per il programma ESP32 FabGL WiFi RSS}
+\author{}
+\date{}
+
+\begin{document}
+	
+	\maketitle
+	
+	\section{Descrizione generale}
+	
+	Questo programma permette di utilizzare un ESP32 collegato a un'uscita VGA tramite la libreria FabGL per visualizzare notizie provenienti da feed RSS.
+	
+	Il dispositivo si collega alla rete WiFi, sincronizza l'orologio tramite NTP e mostra sullo schermo:
+	
+	\begin{itemize}
+		\item la data e l'ora locale;
+		\item una barra di avanzamento che indica il tempo mancante al prossimo aggiornamento RSS;
+		\item il nome del feed RSS attualmente selezionato;
+		\item l'elenco delle notizie più recenti;
+		\item la data e l'ora delle singole notizie;
+		\item i titoli delle notizie con ritorno a capo automatico.
+	\end{itemize}
+	
+	Il programma non utilizza più un file \texttt{config.h}: le credenziali WiFi e l'elenco dei feed RSS possono essere configurati tramite una pagina web integrata.
+	
+	\section{Librerie richieste}
+	
+	Per compilare correttamente il programma sono necessarie le seguenti librerie:
+	
+	\begin{itemize}
+		\item \texttt{FabGL}, versione 1.0.9;
+		\item \texttt{Bounce2};
+		\item librerie standard ESP32:
+		\begin{itemize}
+			\item \texttt{WiFi.h};
+			\item \texttt{WiFiClientSecure.h};
+			\item \texttt{HTTPClient.h};
+			\item \texttt{time.h}.
+		\end{itemize}
+		\item il modulo locale \texttt{LkWiFiConfigPortal.h}.
+	\end{itemize}
+	
+	Il file \texttt{LkWiFiConfigPortal.h} deve essere presente nella cartella del progetto insieme al file principale \texttt{.ino}.
+	
+	\section{Impostazioni di compilazione}
+	
+	Usare Arduino IDE con il core ESP32 di Espressif.
+	
+	\subsection{Versioni consigliate}
+	
+	\begin{itemize}
+		\item Core ESP32 by Espressif Systems: \textbf{2.0.4};
+		\item Scheda: \textbf{ESP32 Dev Module};
+		\item FabGL: \textbf{1.0.9}.
+	\end{itemize}
+	
+	\subsection{Parametri della scheda}
+	
+	Impostare Arduino IDE nel seguente modo:
+	
+	\begin{lstlisting}[style=codice]
+		Board: ESP32 Dev Module
+		Upload Speed: 921600 oppure 115200
+		CPU Frequency: 240 MHz
+		Flash Frequency: 80 MHz
+		Flash Mode: QIO
+		Flash Size: 4MB
+		Partition Scheme: Default 4MB with spiffs
+		PSRAM: Disabled
+		Core Debug Level: None
+		Port: la porta USB del tuo ESP32
+	\end{lstlisting}
+	
+	\section{Collegamento del pulsante RSS}
+	
+	Il programma usa un pulsante collegato al pin:
+	
+	\begin{lstlisting}[style=codice]
+		GPIO 33
+	\end{lstlisting}
+	
+	Nel codice il pin è definito così:
+	
+	\begin{lstlisting}[style=codice]
+		const int BTN_NEXT_RSS = 33;
+	\end{lstlisting}
+	
+	Il pulsante deve essere collegato in modo che, quando viene premuto, porti il pin a massa.
+	
+	Il programma usa la resistenza interna di pull-up dell'ESP32:
+	
+	\begin{lstlisting}[style=codice]
+		pinMode(BTN_NEXT_RSS, INPUT_PULLUP);
+	\end{lstlisting}
+	
+	Quindi lo schema logico è:
+	
+	\begin{itemize}
+		\item pulsante rilasciato: ingresso alto;
+		\item pulsante premuto: ingresso basso.
+	\end{itemize}
+	
+	\section{Modalità di configurazione}
+	
+	Il programma può partire in due modalità:
+	
+	\begin{itemize}
+		\item modalità normale;
+		\item modalità configurazione.
+	\end{itemize}
+	
+	\subsection{Avvio normale}
+	
+	Se il pulsante RSS non è premuto all'accensione, il dispositivo tenta di collegarsi alla rete WiFi già configurata.
+	
+	Se la connessione WiFi è disponibile, il programma:
+	
+	\begin{enumerate}
+		\item sincronizza l'orologio tramite NTP;
+		\item scarica il feed RSS selezionato;
+		\item mostra data, ora e notizie sullo schermo VGA.
+	\end{enumerate}
+	
+	\subsection{Avvio in modalità configurazione}
+	
+	Per avviare la modalità configurazione:
+	
+	\begin{enumerate}
+		\item spegnere l'ESP32;
+		\item tenere premuto il pulsante RSS;
+		\item accendere l'ESP32;
+		\item rilasciare il pulsante dopo l'avvio.
+	\end{enumerate}
+	
+	In questa modalità il dispositivo crea un Access Point WiFi.
+	
+	Sullo schermo compare un messaggio simile a:
+	
+	\begin{lstlisting}[style=codice]
+		Modalita configurazione: AP ESP32-RSS-SETUP,
+		pagina http://192.168.4.1/config.html
+	\end{lstlisting}
+	
+	Collegarsi quindi alla rete WiFi creata dall'ESP32 e aprire nel browser:
+	
+	\begin{center}
+		\url{http://192.168.4.1/config.html}
+	\end{center}
+	
+	Da questa pagina è possibile configurare le credenziali WiFi.
+	
+	\section{Configurazione dei feed RSS}
+	
+	Il programma contiene alcuni feed RSS predefiniti:
+	
+	\begin{itemize}
+		\item Il Fatto Quotidiano;
+		\item The Guardian;
+		\item New York Times;
+		\item ANSA Cronaca;
+		\item ANSA Home;
+		\item ANSA Mondo.
+	\end{itemize}
+	
+	Questi feed sono usati come valori iniziali, ma possono essere modificati tramite pagina web.
+	
+	La pagina per modificare l'elenco dei feed RSS è:
+	
+	\begin{center}
+		\url{http://IP_ESP32/rss.html}
+	\end{center}
+	
+	Dove \texttt{IP\_ESP32} è l'indirizzo IP assegnato dal router all'ESP32.
+	
+	Esempio:
+	
+	\begin{center}
+		\url{http://192.168.1.50/rss.html}
+	\end{center}
+	
+	\section{Cambio del feed RSS}
+	
+	Il pulsante collegato al pin GPIO 33 serve anche per cambiare il feed RSS visualizzato.
+	
+	A ogni pressione del pulsante, il programma passa al feed successivo.
+	
+	Quando arriva all'ultimo feed configurato, torna automaticamente al primo.
+	
+	Per evitare cambi accidentali o rimbalzi del pulsante, il programma usa:
+	
+	\begin{itemize}
+		\item la libreria \texttt{Bounce2};
+		\item un intervallo di debounce di 80 ms;
+		\item un tempo di stabilizzazione della selezione RSS di 2 secondi.
+	\end{itemize}
+	
+	Il tempo di stabilizzazione è definito da:
+	
+	\begin{lstlisting}[style=codice]
+		const unsigned long RSS_SELECTION_SETTLE_MS = 2000;
+	\end{lstlisting}
+	
+	Questo significa che, dopo il cambio del feed, il programma aspetta 2 secondi prima di scaricare effettivamente le nuove notizie.
+	
+	\section{Aggiornamento automatico delle notizie}
+	
+	Le notizie vengono aggiornate automaticamente ogni minuto.
+	
+	Il tempo di aggiornamento è definito da:
+	
+	\begin{lstlisting}[style=codice]
+		const uint32_t FETCH_REFRESH_MS = 1UL * 60UL * 1000UL;
+	\end{lstlisting}
+	
+	Per modificare l'intervallo di aggiornamento, cambiare questo valore.
+	
+	Per esempio, per aggiornare ogni 5 minuti:
+	
+	\begin{lstlisting}[style=codice]
+		const uint32_t FETCH_REFRESH_MS = 5UL * 60UL * 1000UL;
+	\end{lstlisting}
+	
+	\section{Barra di avanzamento}
+	
+	Sulla prima riga dello schermo viene visualizzata una piccola barra di avanzamento che indica quanto tempo è passato dall'ultimo aggiornamento RSS.
+	
+	La lunghezza della barra è definita da:
+	
+	\begin{lstlisting}[style=codice]
+		const int RSS_BAR_LEN = 20;
+	\end{lstlisting}
+	
+	La barra si riempie progressivamente fino al successivo aggiornamento automatico delle notizie.
+	
+	\section{Numero massimo di notizie}
+	
+	Il programma gestisce al massimo 20 notizie per ogni feed RSS.
+	
+	Il valore è definito da:
+	
+	\begin{lstlisting}[style=codice]
+		const int MAX_NEWS = 20;
+	\end{lstlisting}
+	
+	Se il feed contiene più di 20 notizie, vengono considerate solo le prime 20 trovate e ordinate in base alla data.
+	
+	\section{Sincronizzazione dell'orologio}
+	
+	Quando il WiFi è disponibile, il programma sincronizza l'orario tramite NTP usando i server:
+	
+	\begin{itemize}
+		\item \texttt{pool.ntp.org};
+		\item \texttt{time.google.com}.
+	\end{itemize}
+	
+	Il fuso orario è impostato per l'Italia:
+	
+	\begin{lstlisting}[style=codice]
+		const char* TZ_EUROPE_ROME =
+		"CET-1CEST,M3.5.0/2,M10.5.0/3";
+	\end{lstlisting}
+	
+	Questo permette di gestire automaticamente ora solare e ora legale.
+	
+	\section{Visualizzazione sullo schermo}
+	
+	La riga 0 dello schermo mostra:
+	
+	\begin{itemize}
+		\item giorno della settimana;
+		\item giorno del mese;
+		\item mese;
+		\item anno;
+		\item ora;
+		\item barra di avanzamento RSS;
+		\item nome del feed selezionato.
+	\end{itemize}
+	
+	Le righe successive mostrano le notizie.
+	
+	Per ogni notizia vengono visualizzati:
+	
+	\begin{itemize}
+		\item la data e l'ora della notizia;
+		\item il titolo della notizia.
+	\end{itemize}
+	
+	I titoli troppo lunghi vengono spezzati automaticamente su più righe.
+	
+	\section{Colori delle notizie}
+	
+	Ogni titolo viene visualizzato con una combinazione di colori calcolata in base al testo della notizia.
+	
+	Il programma evita alcune combinazioni poco leggibili, per esempio:
+	
+	\begin{itemize}
+		\item giallo su ciano;
+		\item ciano su giallo;
+		\item verde su ciano;
+		\item rosso su magenta;
+		\item bianco su giallo;
+		\item bianco su verde;
+		\item bianco su ciano.
+	\end{itemize}
+	
+	Questo permette di differenziare visivamente le notizie mantenendo una buona leggibilità.
+	
+	\section{Pulizia dei titoli RSS}
+	
+	Prima di mostrare i titoli, il programma esegue alcune operazioni di pulizia:
+	
+	\begin{itemize}
+		\item rimuove eventuali sezioni CDATA;
+		\item converte alcune entità HTML;
+		\item normalizza apostrofi, virgolette e trattini;
+		\item converte alcuni caratteri accentati per la visualizzazione corretta sul terminale FabGL;
+		\item rimuove parole come \texttt{DIRETTA}, \texttt{LIVE} e \texttt{VIDEO}.
+	\end{itemize}
+	
+	Questa pulizia rende i titoli più adatti alla visualizzazione su schermo VGA testuale.
+	
+	\section{Gestione della connessione WiFi}
+	
+	Durante il ciclo principale, il programma controlla continuamente lo stato del portale WiFi.
+	
+	Se il WiFi viene configurato dopo l'avvio, il programma:
+	
+	\begin{enumerate}
+		\item sincronizza l'orologio;
+		\item forza un primo download delle notizie;
+		\item aggiorna la schermata.
+	\end{enumerate}
+	
+	Questo consente di configurare il dispositivo senza dover necessariamente ricompilare il firmware.
+	
+	\section{Funzionamento del ciclo principale}
+	
+	Nel \texttt{loop()} il programma esegue continuamente queste operazioni:
+	
+	\begin{enumerate}
+		\item gestisce le richieste web del portale di configurazione;
+		\item verifica se il WiFi è stato appena configurato;
+		\item controlla se la configurazione RSS è stata modificata da web;
+		\item legge il pulsante per il cambio feed;
+		\item applica l'eventuale cambio feed dopo il tempo di stabilizzazione;
+		\item aggiorna la riga dell'orologio ogni secondo;
+		\item aggiorna periodicamente le notizie RSS.
+	\end{enumerate}
+	
+	L'orologio viene aggiornato senza ridisegnare tutta la schermata, così si evita lo sfarfallamento.
+	
+	\section{Procedura consigliata di utilizzo}
+	
+	\begin{enumerate}
+		\item Caricare il programma sull'ESP32.
+		\item Collegare il sistema VGA secondo lo schema previsto da FabGL.
+		\item Collegare il pulsante RSS al GPIO 33 e a massa.
+		\item Accendere l'ESP32 tenendo premuto il pulsante per entrare in configurazione.
+		\item Collegarsi all'Access Point creato dall'ESP32.
+		\item Aprire:
+		\begin{center}
+			\url{http://192.168.4.1/config.html}
+		\end{center}
+		\item Inserire le credenziali WiFi.
+		\item Riavviare l'ESP32 in modalità normale.
+		\item Quando l'ESP32 è collegato al router, aprire:
+		\begin{center}
+			\url{http://IP_ESP32/rss.html}
+		\end{center}
+		\item Modificare eventualmente l'elenco dei feed RSS.
+		\item Usare il pulsante per cambiare feed RSS.
+	\end{enumerate}
+	
+	\section{Personalizzazioni principali}
+	
+	\subsection{Cambiare il tempo di aggiornamento RSS}
+	
+	Modificare:
+	
+	\begin{lstlisting}[style=codice]
+		const uint32_t FETCH_REFRESH_MS = 1UL * 60UL * 1000UL;
+	\end{lstlisting}
+	
+	\subsection{Cambiare il numero massimo di notizie}
+	
+	Modificare:
+	
+	\begin{lstlisting}[style=codice]
+		const int MAX_NEWS = 20;
+	\end{lstlisting}
+	
+	\subsection{Cambiare il pin del pulsante}
+	
+	Modificare:
+	
+	\begin{lstlisting}[style=codice]
+		const int BTN_NEXT_RSS = 33;
+	\end{lstlisting}
+	
+	\subsection{Cambiare i feed RSS predefiniti}
+	
+	Modificare l'array:
+	
+	\begin{lstlisting}[style=codice]
+		const LkRSSFeed DEFAULT_RSS_FEEDS[] = {
+			{ "IL FATTO QUOTIDIANO ", "https://www.ilfattoquotidiano.it/feed/"},
+			{ "THE GUARDIAN", "https://www.theguardian.com/world/rss"},
+			{ "NEW YORK TIMES", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"},
+			{ "ANSA CRONACA", "https://www.ansa.it/sito/notizie/cronaca/cronaca_rss.xml" },
+			{ "ANSA HOME",    "https://www.ansa.it/sito/ansait_rss.xml" },
+			{ "ANSA MONDO",   "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml" },
+		};
+	\end{lstlisting}
+	
+	Questi valori sono solo i valori iniziali: dopo la configurazione tramite pagina web, il programma userà i feed salvati nel portale.
+	
+	\section{Note importanti}
+	
+	\begin{itemize}
+		\item Il programma usa connessioni HTTPS ma disabilita la verifica del certificato tramite \texttt{client.setInsecure()}.
+		\item Questo semplifica il download dei feed RSS da ESP32, ma non offre una verifica crittografica completa del certificato.
+		\item I feed RSS devono essere raggiungibili dall'ESP32 tramite la rete WiFi configurata.
+		\item Alcuni feed potrebbero non funzionare se il server richiede compressione, redirect particolari o formati XML non compatibili.
+		\item Il programma forza l'header \texttt{Accept-Encoding: identity} per evitare risposte compresse difficili da gestire sull'ESP32.
+	\end{itemize}
+	
+	\section{Risoluzione dei problemi}
+	
+	\subsection{Non compare nessuna notizia}
+	
+	Controllare che:
+	
+	\begin{itemize}
+		\item l'ESP32 sia connesso al WiFi;
+		\item l'indirizzo del feed RSS sia corretto;
+		\item il feed RSS sia raggiungibile da browser;
+		\item il router permetta l'accesso a Internet;
+		\item il feed restituisca codice HTTP 200.
+	\end{itemize}
+	
+	\subsection{L'ora non viene visualizzata}
+	
+	Controllare che:
+	
+	\begin{itemize}
+		\item il WiFi sia connesso;
+		\item l'ESP32 possa raggiungere i server NTP;
+		\item la rete non blocchi il traffico NTP.
+	\end{itemize}
+	
+	\subsection{Il pulsante non cambia feed}
+	
+	Controllare che:
+	
+	\begin{itemize}
+		\item il pulsante sia collegato tra GPIO 33 e GND;
+		\item il pin configurato nel codice sia corretto;
+		\item il pulsante funzioni elettricamente;
+		\item siano presenti almeno due feed RSS configurati.
+	\end{itemize}
+	
+	\subsection{Caratteri accentati visualizzati male}
+	
+	Il programma converte alcuni caratteri accentati italiani in byte compatibili con la visualizzazione terminale.
+	
+	Se qualche carattere viene visualizzato ancora in modo errato, occorre aggiungere una nuova conversione nella funzione:
+	
+	\begin{lstlisting}[style=codice]
+		toDisplayCharset()
+	\end{lstlisting}
+	
+	\section{Conclusione}
+	
+	Il programma realizza un visualizzatore RSS autonomo basato su ESP32 e FabGL.
+	
+	La configurazione tramite pagina web permette di modificare WiFi e feed RSS senza ricompilare il firmware. Il pulsante fisico consente di cambiare rapidamente sorgente RSS, mentre la schermata VGA mostra data, ora e notizie aggiornate automaticamente.
+\end{document}
+```

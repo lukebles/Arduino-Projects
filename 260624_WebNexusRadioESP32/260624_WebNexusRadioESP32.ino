@@ -47,10 +47,34 @@ RadioHead / RH_ASK, se richiesto dalla tua LkRadioStructure_RH.h
 
 #include <memory>
 #include <math.h>
+#include <time.h> // la data/ora la prende da internet
+
+#include "config.h"
 
 // ====================== CONFIG ======================
-static const char* AP_SSID     = "sidx";
-static const char* AP_PASS     = "pw12345678";   // >= 8 chars
+
+#define DEBUG 1   // 0 = debug spento, 1 = debug acceso
+
+#if DEBUG
+  #define dbgBegin(baud) Serial.begin(baud)
+  #define prt(...)       Serial.print(__VA_ARGS__)
+  #define prtn(...)      Serial.println(__VA_ARGS__)
+  #define prtf(...)      Serial.printf(__VA_ARGS__)
+#else
+  #define dbgBegin(baud)
+  #define prt(...)
+  #define prtn(...)
+  #define prtf(...)
+#endif
+
+#ifndef LED_BUILTIN
+  #define LED_BUILTIN 2
+#endif
+
+static const uint32_t WIFI_RETRY_INTERVAL_MS = 10000;
+static uint32_t lastWiFiRetry = 0;
+static bool wifiWasConnected = false;
+
 
 static const uint32_t RADIO_TIMEOUT_MS = 27000;
 static const uint32_t SAVE_INTERVAL_MS = 8UL * 60UL * 60UL * 1000UL; // 8 ore
@@ -178,6 +202,39 @@ static void formatTime_days(time_t t, char* b, size_t n) {
 static void setAffidabilitaDato(bool v) { ultimoDatoRadioAffidabile = v; }
 static void setPotenza(int v) { potenza = v; }
 
+static bool setupTimeFromInternet() {
+  // Italia: CET/CEST automatico
+  configTzTime("CET-1CEST,M3.5.0/2,M10.5.0/3",
+               "pool.ntp.org",
+               "time.google.com",
+               "time.cloudflare.com");
+
+  prt("Sincronizzazione ora NTP");
+
+  struct tm timeinfo;
+  uint32_t start = millis();
+
+  while (!getLocalTime(&timeinfo) && millis() - start < 15000) {
+    delay(500);
+    prt(".");
+  }
+
+  prtn();
+
+  if (!getLocalTime(&timeinfo)) {
+    prtn("NTP fallito");
+    return false;
+  }
+
+  time_t t = mktime(&timeinfo);
+  setTime(t);
+
+  prt("Ora NTP impostata: ");
+  prtn(asctime(&timeinfo));
+
+  return true;
+}
+
 // ====================== WIFI (AP) ====================
 static int findBestChannel(int n) {
   int channels[13] = {0};
@@ -199,28 +256,58 @@ static int findBestChannel(int n) {
     }
   }
 
-  Serial.printf("Best channel: %d (nets=%d)\n", best, minN);
+  prtf("Best channel: %d (nets=%d)\n", best, minN);
   return best;
 }
 
-static void setupWiFiAP() {
-  WiFi.mode(WIFI_AP);
+static void handleWiFiConnection() {
+  wl_status_t st = WiFi.status();
 
-  int n = WiFi.scanNetworks(false, true);
-  int ch = findBestChannel(n);
-  WiFi.scanDelete();
+  if (st == WL_CONNECTED) {
+    digitalWrite(LED_BUILTIN, HIGH);
 
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch);
-  if (!ok) {
-    Serial.println("softAP failed");
+    if (!wifiWasConnected) {
+      wifiWasConnected = true;
+      prtn("WiFi connesso");
+      prt("IP ESP32: ");
+      prtn(WiFi.localIP());
+    }
+
     return;
   }
 
-  Serial.printf("AP up: %s ch=%d ip=%s\n",
-                AP_SSID,
-                ch,
-                WiFi.softAPIP().toString().c_str());
+  digitalWrite(LED_BUILTIN, LOW);
+
+  if (wifiWasConnected) {
+    wifiWasConnected = false;
+    prtn("WiFi disconnesso");
+  }
+
+  if (millis() - lastWiFiRetry >= WIFI_RETRY_INTERVAL_MS) {
+    lastWiFiRetry = millis();
+
+    prt("Ritento connessione WiFi a: ");
+    prtn(WIFI_SSID);
+
+    WiFi.disconnect(false);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
 }
+
+static void setupWiFiSTA() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+
+  prt("Avvio connessione WiFi a: ");
+  prtn(WIFI_SSID);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  lastWiFiRetry = millis();
+}
+
 
 // ====================== RING BUFFERS ==================
 static void ring_push_instant(uint16_t diff_a, uint16_t diff_r, uint32_t timediff_ms) {
@@ -329,16 +416,16 @@ static void processEnergyCounts(uint16_t activeCount, uint16_t reactiveCount) {
     uint16_t activeDiff = activeCount - prevActiveCount;
     uint16_t reactiveDiff = reactiveCount - prevReactiveCount;
 
-    Serial.print("activeCount=");
-    Serial.print(activeCount);
-    Serial.print(" reactiveCount=");
-    Serial.print(reactiveCount);
-    Serial.print(" activeDiff=");
-    Serial.print(activeDiff);
-    Serial.print(" reactiveDiff=");
-    Serial.print(reactiveDiff);
-    Serial.print(" timeDiff=");
-    Serial.println(timeDiff);
+    prt("activeCount=");
+    prt(activeCount);
+    prt(" reactiveCount=");
+    prt(reactiveCount);
+    prt(" activeDiff=");
+    prt(activeDiff);
+    prt(" reactiveDiff=");
+    prt(reactiveDiff);
+    prt(" timeDiff=");
+    prtn(timeDiff);
 
     // stessa logica ESP01s
     if (activeDiff < 3600) {
@@ -409,7 +496,7 @@ static void saveData() {
 
   File f = LittleFS.open("/data.bin", "w");
   if (!f) {
-    Serial.println("saveData: open fail");
+    prtn("saveData: open fail");
     return;
   }
 
@@ -418,42 +505,42 @@ static void saveData() {
   f.close();
 
   if (w1 != sizeof(h) || w2 != plen) {
-    Serial.println("saveData: short write");
+    prtn("saveData: short write");
     return;
   }
 
-  Serial.println("Data saved");
+  prtn("Data saved");
 }
 
 static void loadData() {
   File f = LittleFS.open("/data.bin", "r");
   if (!f) {
-    Serial.println("loadData: missing");
+    prtn("loadData: missing");
     return;
   }
 
   DataFileHeader h{};
   if (f.read(reinterpret_cast<uint8_t*>(&h), sizeof(h)) != sizeof(h)) {
-    Serial.println("loadData: bad header");
+    prtn("loadData: bad header");
     f.close();
     return;
   }
 
   if (h.magic != WNX_MAGIC || h.version != 1) {
-    Serial.println("loadData: wrong magic/version");
+    prtn("loadData: wrong magic/version");
     f.close();
     return;
   }
 
   if (h.payloadLen != sizeof(Payload)) {
-    Serial.println("loadData: payload size mismatch");
+    prtn("loadData: payload size mismatch");
     f.close();
     return;
   }
 
   std::unique_ptr<uint8_t[]> buf(new uint8_t[h.payloadLen]);
   if (!buf) {
-    Serial.println("loadData: oom");
+    prtn("loadData: oom");
     f.close();
     return;
   }
@@ -462,13 +549,13 @@ static void loadData() {
   f.close();
 
   if (r != (int)h.payloadLen) {
-    Serial.println("loadData: short read");
+    prtn("loadData: short read");
     return;
   }
 
   uint32_t cs = simpleChecksum(buf.get(), h.payloadLen);
   if (cs != h.checksum) {
-    Serial.println("loadData: checksum mismatch");
+    prtn("loadData: checksum mismatch");
     return;
   }
 
@@ -482,7 +569,7 @@ static void loadData() {
   hr_head  = p->hr_head;  hr_full  = p->hr_full;
   dy_head  = p->dy_head;  dy_full  = p->dy_full;
 
-  Serial.println("Data loaded");
+  prtn("Data loaded");
 }
 
 // ====================== JSON SEND =====================
@@ -762,7 +849,7 @@ static void onWsEvent(AsyncWebSocket* serverPtr,
   } else if (msg.startsWith("POWER-LIMIT=")) {
     powerLimitValue = msg.substring(12).toInt();
     prefs.putInt("powLimit", powerLimitValue);
-    Serial.println(msg);
+    prtn(msg);
 
   } else if (msg.startsWith("setTime:")) {
     String s = msg.substring(8);
@@ -779,12 +866,12 @@ static void onWsEvent(AsyncWebSocket* serverPtr,
       if (t > 0) {
         setTime(t);
         client->text("Time updated successfully");
-        Serial.println("DATETIME-OK");
+        prtn("DATETIME-OK");
       }
     }
 
   } else if (msg.startsWith("ALARM-TEST")) {
-    Serial.println(msg);
+    prtn(msg);
 
   } else if (msg == "SAVE") {
     saveData();
@@ -798,7 +885,7 @@ static void setupWebServer() {
   server.on("/megane.html", HTTP_GET, [](AsyncWebServerRequest* req) {
     String responseText = String(potenza) + "-" + String(ultimoDatoRadioAffidabile ? 1 : 0);
     req->send(200, "text/plain; charset=utf-8", responseText);
-    Serial.println("AUTOmegane");
+    prtn("AUTOmegane");
   });
 
   setupHttpApi();
@@ -811,17 +898,31 @@ static void setupWebServer() {
 
 // ====================== SETUP/LOOP ====================
 void setup() {
-  Serial.begin(9600);
+  dbgBegin(9600);
 
   uint32_t serialWaitStart = millis();
   while (!Serial && (millis() - serialWaitStart < 2000)) {
     delay(10);
   }
 
-  setTime(18, 0, 0, 1, 5, 2024);
+  setupWiFiSTA();
+
+  if (!setupTimeFromInternet()) {
+    setTime(18, 0, 0, 1, 5, 2024);
+
+    int count = ist_full ? MAX_DATA_POINTS : (int)ist_head;
+    if (count > 0) {
+      int last = (ist_head == 0) ? (MAX_DATA_POINTS - 1) : (ist_head - 1);
+      if (istantPoints[last].timestamp > 1700000000) {
+        setTime(istantPoints[last].timestamp);
+      }
+    }
+  }
+
+  setupWebServer();
 
   if (!LittleFS.begin(true)) {
-    Serial.println("LittleFS mount failed");
+    prtn("LittleFS mount failed");
     return;
   }
 
@@ -840,7 +941,7 @@ void setup() {
     }
   }
 
-  setupWiFiAP();
+  setupWiFiSTA();
   setupWebServer();
 
   RxRadio::globalSetup(
@@ -851,13 +952,15 @@ void setup() {
     false
   );
 
-  Serial.println("Radio in ascolto...");
+  prtn("Radio in ascolto...");
 
   lastSaveTime = millis();
   lastWsCleanup = millis();
 }
 
 void loop() {
+  handleWiFiConnection();
+
   if (millis() - lastWsCleanup >= WS_CLEANUP_MS) {
     ws.cleanupClients();
     lastWsCleanup = millis();
@@ -878,15 +981,15 @@ void loop() {
 
     radio.getRawBuffer(buf, len);
 
-    Serial.print("RAW len=");
-    Serial.print(len);
-    Serial.print(" HEX=");
+    prt("RAW len=");
+    prt(len);
+    prt(" HEX=");
     for (uint8_t i = 0; i < len; i++) {
-      if (buf[i] < 0x10) Serial.print('0');
-      Serial.print(buf[i], HEX);
-      Serial.print(' ');
+      if (buf[i] < 0x10) prt('0');
+      prt(buf[i], HEX);
+      prt(' ');
     }
-    Serial.println();
+    prtn();
 
     uint16_t activeCount = 0;
     uint16_t reactiveCount = 0;
