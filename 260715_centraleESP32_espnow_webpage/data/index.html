@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+  <title>ESP32 Meteo</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #eeeeee;
+      color: #222222;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 15px;
+    }
+
+    .page {
+      width: 94%;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 18px 0 30px 0;
+    }
+
+    h1 {
+      margin: 0 0 6px 0;
+      font-size: 26px;
+    }
+
+    h2 {
+      margin: 0 0 12px 0;
+      font-size: 20px;
+    }
+
+    .subtitle {
+      margin: 0 0 16px 0;
+      color: #555555;
+    }
+
+    .panel {
+      margin: 0 0 18px 0;
+      padding: 14px;
+      background: #ffffff;
+      border: 1px solid #cccccc;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+
+    .status {
+      padding: 10px;
+      background: #f7f7f7;
+      border: 1px solid #dddddd;
+      line-height: 1.55;
+    }
+
+    .status.error {
+      background: #fff1f1;
+      border-color: #d89a9a;
+    }
+
+    .values {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    .values th,
+    .values td {
+      padding: 7px 8px;
+      text-align: left;
+      border-bottom: 1px solid #dddddd;
+    }
+
+    .values th {
+      width: 34%;
+      color: #555555;
+      font-weight: normal;
+    }
+
+    .chart-box {
+      position: relative;
+      height: 390px;
+    }
+
+    .footnote {
+      margin-top: 10px;
+      color: #666666;
+      font-size: 13px;
+    }
+
+    @media screen and (max-width: 700px) {
+      .page {
+        width: 97%;
+      }
+
+      .panel {
+        padding: 9px;
+      }
+
+      .chart-box {
+        height: 330px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <h1>Centralina meteo ESP32</h1>
+    <p class="subtitle">
+      Medie orarie delle ultime 24 ore e medie giornaliere
+      degli ultimi 30 giorni
+    </p>
+
+    <div class="panel">
+      <div id="status" class="status">
+        Sincronizzazione dell'orologio in corso...
+      </div>
+
+      <table class="values">
+        <tr>
+          <th>Ultima misura</th>
+          <td id="latestTime">-</td>
+        </tr>
+        <tr>
+          <th>Sensore</th>
+          <td id="latestSensor">-</td>
+        </tr>
+        <tr>
+          <th>Temperatura</th>
+          <td id="latestTemperature">-</td>
+        </tr>
+        <tr>
+          <th>Umidità</th>
+          <td id="latestHumidity">-</td>
+        </tr>
+        <tr>
+          <th>Pressione</th>
+          <td id="latestPressure">-</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Ultime 24 ore</h2>
+      <div class="chart-box">
+        <canvas id="hourlyChart"></canvas>
+      </div>
+      <div class="footnote">
+        Il punto dell'ora corrente è una media parziale.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Ultimi 30 giorni</h2>
+      <div class="chart-box">
+        <canvas id="dailyChart"></canvas>
+      </div>
+      <div class="footnote">
+        Il punto del giorno corrente è una media parziale.
+      </div>
+    </div>
+  </div>
+
+  <script src="/chart.min.js"></script>
+
+  <script>
+    var hourlyChart = null;
+    var dailyChart = null;
+
+    function setStatus(message, isError) {
+      var element = document.getElementById("status");
+      element.className = isError ? "status error" : "status";
+      element.innerHTML = message;
+    }
+
+    function formatValue(value, decimals, suffix) {
+      if (value === null || typeof value === "undefined") {
+        return "Non disponibile";
+      }
+
+      return Number(value).toFixed(decimals) + " " + suffix;
+    }
+
+    function sendForm(url, body, callback) {
+      var xhr = new XMLHttpRequest();
+
+      xhr.open("POST", url, true);
+      xhr.setRequestHeader(
+        "Content-Type",
+        "application/x-www-form-urlencoded"
+      );
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          callback(xhr);
+        }
+      };
+
+      xhr.send(body);
+    }
+
+    function getJson(url, callback) {
+      var xhr = new XMLHttpRequest();
+
+      xhr.open(
+        "GET",
+        url + "?nocache=" + new Date().getTime(),
+        true
+      );
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          callback(xhr);
+        }
+      };
+
+      xhr.send(null);
+    }
+
+    function syncBrowserTime(callback) {
+      var now = new Date();
+      var epoch = Math.floor(now.getTime() / 1000);
+
+      // getTimezoneOffset restituisce il segno opposto:
+      // in Italia, in estate, vale -120.
+      var offsetMinutes = -now.getTimezoneOffset();
+
+      var body =
+        "epoch=" + encodeURIComponent(epoch) +
+        "&offset=" + encodeURIComponent(offsetMinutes);
+
+      sendForm("/api/time", body, function (xhr) {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (callback) {
+            callback(true);
+          }
+        } else {
+          setStatus(
+            "Impossibile inviare data e ora all'ESP32.",
+            true
+          );
+
+          if (callback) {
+            callback(false);
+          }
+        }
+      });
+    }
+
+    function makeDatasets(windowData) {
+      return [
+        {
+          label: "Temperatura (°C)",
+          data: windowData.temperature,
+          yAxisID: "temperatureAxis",
+          borderColor: "#c0392b",
+          backgroundColor: "#c0392b",
+          fill: false,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          lineTension: 0.15,
+          spanGaps: false
+        },
+        {
+          label: "Umidità (%)",
+          data: windowData.humidity,
+          yAxisID: "humidityAxis",
+          borderColor: "#2874a6",
+          backgroundColor: "#2874a6",
+          fill: false,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          lineTension: 0.15,
+          spanGaps: false
+        },
+        {
+          label: "Pressione (hPa)",
+          data: windowData.pressure,
+          yAxisID: "pressureAxis",
+          borderColor: "#1e8449",
+          backgroundColor: "#1e8449",
+          fill: false,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          lineTension: 0.15,
+          spanGaps: false
+        }
+      ];
+    }
+
+    function chartOptions() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          duration: 0
+        },
+        hover: {
+          animationDuration: 0
+        },
+        responsiveAnimationDuration: 0,
+        legend: {
+          display: true,
+          position: "top"
+        },
+        tooltips: {
+          mode: "index",
+          intersect: false
+        },
+        scales: {
+          xAxes: [
+            {
+              ticks: {
+                autoSkip: true,
+                maxRotation: 45,
+                minRotation: 0
+              },
+              gridLines: {
+                display: true
+              }
+            }
+          ],
+          yAxes: [
+            {
+              id: "temperatureAxis",
+              type: "linear",
+              position: "left",
+              scaleLabel: {
+                display: true,
+                labelString: "Temperatura °C"
+              },
+              ticks: {
+                beginAtZero: false
+              }
+            },
+            {
+              id: "humidityAxis",
+              type: "linear",
+              position: "right",
+              scaleLabel: {
+                display: true,
+                labelString: "Umidità %"
+              },
+              ticks: {
+                min: 0,
+                max: 100
+              },
+              gridLines: {
+                drawOnChartArea: false
+              }
+            },
+            {
+              id: "pressureAxis",
+              type: "linear",
+              position: "right",
+              scaleLabel: {
+                display: true,
+                labelString: "Pressione hPa"
+              },
+              ticks: {
+                beginAtZero: false
+              },
+              gridLines: {
+                drawOnChartArea: false
+              }
+            }
+          ]
+        }
+      };
+    }
+
+    function updateChart(existingChart, canvasId, windowData) {
+      if (!existingChart) {
+        return new Chart(
+          document.getElementById(canvasId).getContext("2d"),
+          {
+            type: "line",
+            data: {
+              labels: windowData.labels,
+              datasets: makeDatasets(windowData)
+            },
+            options: chartOptions()
+          }
+        );
+      }
+
+      existingChart.data.labels = windowData.labels;
+      existingChart.data.datasets[0].data =
+        windowData.temperature;
+      existingChart.data.datasets[1].data =
+        windowData.humidity;
+      existingChart.data.datasets[2].data =
+        windowData.pressure;
+      existingChart.update(0);
+
+      return existingChart;
+    }
+
+    function updateLatest(latest) {
+      if (!latest || !latest.valid) {
+        document.getElementById("latestTime").innerHTML =
+          "Nessuna misura ricevuta";
+        document.getElementById("latestSensor").innerHTML = "-";
+        document.getElementById(
+          "latestTemperature"
+        ).innerHTML = "-";
+        document.getElementById("latestHumidity").innerHTML = "-";
+        document.getElementById("latestPressure").innerHTML = "-";
+        return;
+      }
+
+      document.getElementById("latestTime").innerHTML =
+        latest.time || "Ricevuta prima della sincronizzazione";
+      document.getElementById("latestSensor").innerHTML =
+        latest.sensor || "-";
+      document.getElementById(
+        "latestTemperature"
+      ).innerHTML = formatValue(
+        latest.temperature,
+        2,
+        "°C"
+      );
+      document.getElementById(
+        "latestHumidity"
+      ).innerHTML = formatValue(
+        latest.humidity,
+        2,
+        "%"
+      );
+      document.getElementById(
+        "latestPressure"
+      ).innerHTML = formatValue(
+        latest.pressure,
+        2,
+        "hPa"
+      );
+    }
+
+    function loadHistory() {
+      getJson("/api/history", function (xhr) {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          setStatus(
+            "Errore durante il caricamento dei dati.",
+            true
+          );
+          return;
+        }
+
+        var data;
+
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch (error) {
+          setStatus(
+            "Risposta JSON non valida.",
+            true
+          );
+          return;
+        }
+
+        updateLatest(data.latest);
+
+        if (!data.timeValid || !data.hourly || !data.daily) {
+          setStatus(
+            "L'orologio non è ancora sincronizzato. " +
+            "Controlla che data e ora del dispositivo siano corrette.",
+            true
+          );
+          return;
+        }
+
+        setStatus(
+          "Ora ESP32: <strong>" +
+          data.deviceTime +
+          "</strong> &nbsp;|&nbsp; " +
+          "Pagina aggiornata automaticamente ogni minuto.",
+          false
+        );
+
+        hourlyChart = updateChart(
+          hourlyChart,
+          "hourlyChart",
+          data.hourly
+        );
+
+        dailyChart = updateChart(
+          dailyChart,
+          "dailyChart",
+          data.daily
+        );
+      });
+    }
+
+    function startPage() {
+      if (typeof Chart === "undefined") {
+        setStatus(
+          "Chart.js non è stato caricato. " +
+          "Verifica che /data/chart.min.js sia presente in LittleFS.",
+          true
+        );
+        return;
+      }
+
+      syncBrowserTime(function () {
+        loadHistory();
+      });
+
+      // Aggiornamento dei grafici.
+      window.setInterval(loadHistory, 60000);
+
+      // Nuova sincronizzazione per correggere deriva e ora legale.
+      window.setInterval(function () {
+        syncBrowserTime(null);
+      }, 5 * 60 * 1000);
+    }
+
+    window.onload = startPage;
+  </script>
+</body>
+</html>

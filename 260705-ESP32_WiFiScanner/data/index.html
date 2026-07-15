@@ -1,0 +1,567 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 WiFi Scanner</title>
+  <script src="/chart.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 0;
+      padding: 12px;
+      background: #f4f4f4;
+      color: #222;
+      font-size: 15px;
+    }
+    h1 { margin: 0 0 8px 0; font-size: 24px; }
+    h2 { margin: 18px 0 8px 0; font-size: 20px; }
+    h3 { margin: 0 0 6px 0; font-size: 17px; }
+    .card {
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    .row { margin: 7px 0; }
+    label { display: inline-block; min-width: 140px; }
+    input[type=number] {
+      width: 80px;
+      padding: 7px;
+      font-size: 16px;
+    }
+    button {
+      padding: 9px 12px;
+      font-size: 16px;
+      border: 1px solid #777;
+      border-radius: 5px;
+      background: #eee;
+      cursor: pointer;
+      margin: 4px 4px 4px 0;
+    }
+    button:active { background: #ddd; }
+    .status {
+      display: inline-block;
+      padding: 4px 7px;
+      border-radius: 4px;
+      background: #e8e8e8;
+      font-weight: bold;
+    }
+    .ok { color: #006000; }
+    .warn { color: #9a4f00; }
+    .err { color: #9a0000; }
+    .small { font-size: 13px; color: #555; }
+    .tableWrap, .chartWrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    table {
+      border-collapse: collapse;
+      min-width: 980px;
+      width: 100%;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    th {
+      background: #e6e6e6;
+      cursor: pointer;
+      position: relative;
+      user-select: none;
+    }
+    th.sortAsc:after { content: " ▲"; }
+    th.sortDesc:after { content: " ▼"; }
+    tbody tr:nth-child(even) { background: #fafafa; }
+    .chartBox {
+      border: 1px solid #bbb;
+      background: #fff;
+      padding: 10px;
+      margin: 12px 0;
+      border-radius: 6px;
+    }
+    .legend { margin-top: 6px; line-height: 1.8; }
+    .legendItem { display: inline-block; margin-right: 12px; font-size: 13px; white-space: nowrap; }
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      vertical-align: -1px;
+      margin-right: 4px;
+      border: 1px solid #777;
+    }
+    canvas { background: #fff; }
+    @media (max-width: 700px) {
+      body { font-size: 14px; padding: 8px; }
+      h1 { font-size: 21px; }
+      button { width: 100%; margin-top: 6px; }
+      label { min-width: 0; display: block; margin-bottom: 3px; }
+    }
+  </style>
+</head>
+<body onload="initPage()">
+  <div class="card">
+    <h1>ESP32 WiFi Scanner</h1>
+    <div class="row small">Collegati all'AP dell'ESP32 e apri <b>http://192.168.4.1</b></div>
+    <div class="row">Stato: <span id="status" class="status">Pronto</span></div>
+    <div class="row small" id="progress">Tempo residuo: -</div>
+    <div class="row">
+      <label for="duration">Durata scansione:</label>
+      <input id="duration" type="number" min="5" max="300" value="30"> secondi
+    </div>
+    <div class="row">
+      <button onclick="startScan()">Avvia scansione</button>
+      <button onclick="loadAll()">Aggiorna</button>
+      <button onclick="clearHistory()">Cancella storico</button>
+    </div>
+    <div class="row small">
+      La data/ora viene inviata dal browser all'ESP32 quando avvii la scansione.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Ultima scansione</h2>
+    <div id="lastInfo" class="small">Nessun dato caricato.</div>
+    <div class="tableWrap">
+      <table id="resultTable">
+        <thead>
+          <tr>
+            <th data-type="num">#</th>
+            <th data-type="text">SSID</th>
+            <th data-type="text">BSSID / MAC</th>
+            <th data-type="num">RSSI min</th>
+            <th data-type="num">RSSI max</th>
+            <th data-type="num">Canale</th>
+            <th data-type="num">MHz</th>
+            <th data-type="text">Crittografia</th>
+            <th data-type="text">Open/Protetta</th>
+            <th data-type="text">Larghezza</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Storico grafici ultime 5 scansioni</h2>
+    <div id="chartInfo" class="small"></div>
+    <div id="charts"></div>
+  </div>
+
+<script>
+var pollTimer = null;
+var charts = [];
+var lastSort = { tableId: '', col: -1, asc: true };
+
+function ajax(url, ok, fail) {
+  var x = new XMLHttpRequest();
+  x.open('GET', url, true);
+  x.onreadystatechange = function () {
+    if (x.readyState === 4) {
+      if (x.status >= 200 && x.status < 300) {
+        ok(x.responseText);
+      } else if (fail) {
+        fail(x.status, x.responseText);
+      }
+    }
+  };
+  x.send(null);
+}
+
+function parseJson(txt) {
+  try { return JSON.parse(txt); }
+  catch (e) { return null; }
+}
+
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+function localDateTimeString() {
+  var d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+         pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+
+function esc(s) {
+  s = String(s == null ? '' : s);
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function setStatus(txt, cls) {
+  var el = document.getElementById('status');
+  el.innerHTML = esc(txt);
+  el.className = 'status ' + (cls || '');
+}
+
+function startScan() {
+  var duration = parseInt(document.getElementById('duration').value, 10);
+  if (isNaN(duration) || duration < 5) duration = 30;
+  if (duration > 300) duration = 300;
+  document.getElementById('duration').value = duration;
+
+  var url = '/start?clientTime=' + encodeURIComponent(localDateTimeString()) + '&duration=' + encodeURIComponent(duration);
+  setStatus('Avvio scansione...', 'warn');
+
+  ajax(url, function (txt) {
+    var data = parseJson(txt);
+    if (!data || !data.ok) {
+      setStatus('Errore avvio scansione', 'err');
+      return;
+    }
+    startPolling();
+  }, function (status, txt) {
+    setStatus('Errore: scansione non avviata', 'err');
+    alert('Errore avvio scansione: ' + txt);
+  });
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollStatus();
+  pollTimer = setInterval(pollStatus, 1000);
+}
+
+function pollStatus() {
+  ajax('/status', function (txt) {
+    var s = parseJson(txt);
+    if (!s) return;
+
+    if (s.state === 'scanning') {
+      setStatus('Scansione in corso', 'warn');
+      document.getElementById('progress').innerHTML = 'Tempo residuo: ' + esc(s.remaining) + ' s - reti uniche salvate: ' + esc(s.unique);
+    } else if (s.state === 'completed') {
+      setStatus('Scansione completata', 'ok');
+      document.getElementById('progress').innerHTML = 'Tempo residuo: 0 s';
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        loadLast();
+        loadHistory();
+      }
+    } else {
+      setStatus('Pronto', '');
+      document.getElementById('progress').innerHTML = 'Tempo residuo: -';
+    }
+  });
+}
+
+function loadAll() {
+  loadLast();
+  loadHistory();
+  pollStatus();
+}
+
+function loadLast() {
+  ajax('/last', function (txt) {
+    var scan = parseJson(txt);
+    if (!scan) return;
+    renderTable(scan);
+  });
+}
+
+function renderTable(scan) {
+  var tbody = document.getElementById('resultTable').getElementsByTagName('tbody')[0];
+  var nets = scan.networks || [];
+  var html = '';
+
+  document.getElementById('lastInfo').innerHTML =
+    'Data/ora: <b>' + esc(scan.time || '-') + '</b> - durata: <b>' + esc(scan.durationEffective || scan.duration || 0) + ' s</b> - reti: <b>' + esc(scan.total || nets.length) + '</b>';
+
+  for (var i = 0; i < nets.length; i++) {
+    var n = nets[i];
+    html += '<tr>' +
+      '<td data-sort="' + esc(n.n || (i + 1)) + '">' + esc(n.n || (i + 1)) + '</td>' +
+      '<td data-sort="' + esc(n.ssid || '') + '">' + esc(n.ssid || '') + '</td>' +
+      '<td data-sort="' + esc(n.bssid || '') + '">' + esc(n.bssid || '') + '</td>' +
+      '<td data-sort="' + esc(n.rssiMin) + '">' + esc(n.rssiMin) + ' dBm</td>' +
+      '<td data-sort="' + esc(n.rssiMax) + '">' + esc(n.rssiMax) + ' dBm</td>' +
+      '<td data-sort="' + esc(n.channel || 0) + '">' + esc(n.channel || '') + '</td>' +
+      '<td data-sort="' + esc(n.freq || 0) + '">' + esc(n.freq || '') + '</td>' +
+      '<td data-sort="' + esc(n.enc || '') + '">' + esc(n.enc || '') + '</td>' +
+      '<td data-sort="' + (n.open ? '0' : '1') + '">' + (n.open ? 'Open' : 'Protetta') + '</td>' +
+      '<td data-sort="' + esc(n.width || '') + '">' + esc(n.width || '') + '</td>' +
+      '</tr>';
+  }
+
+  if (nets.length === 0) {
+    html = '<tr><td colspan="10">Nessuna rete rilevata.</td></tr>';
+  }
+  tbody.innerHTML = html;
+}
+
+function setupSortHeaders() {
+  var table = document.getElementById('resultTable');
+  var ths = table.getElementsByTagName('th');
+  for (var i = 0; i < ths.length; i++) {
+    (function (col) {
+      ths[col].onclick = function () { sortTable('resultTable', col); };
+    })(i);
+  }
+}
+
+function sortTable(tableId, col) {
+  var table = document.getElementById(tableId);
+  var tbody = table.getElementsByTagName('tbody')[0];
+  var rows = [];
+  var tr = tbody.getElementsByTagName('tr');
+  var ths = table.getElementsByTagName('th');
+  var type = ths[col].getAttribute('data-type') || 'text';
+
+  for (var i = 0; i < tr.length; i++) rows.push(tr[i]);
+  if (rows.length <= 1) return;
+
+  var asc = true;
+  if (lastSort.tableId === tableId && lastSort.col === col) asc = !lastSort.asc;
+  lastSort = { tableId: tableId, col: col, asc: asc };
+
+  for (var h = 0; h < ths.length; h++) ths[h].className = '';
+  ths[col].className = asc ? 'sortAsc' : 'sortDesc';
+
+  rows.sort(function (a, b) {
+    var av = a.cells[col].getAttribute('data-sort');
+    var bv = b.cells[col].getAttribute('data-sort');
+    if (type === 'num') {
+      av = parseFloat(av);
+      bv = parseFloat(bv);
+      if (isNaN(av)) av = -999999;
+      if (isNaN(bv)) bv = -999999;
+      return asc ? av - bv : bv - av;
+    }
+    av = String(av || '').toLowerCase();
+    bv = String(bv || '').toLowerCase();
+    if (av < bv) return asc ? -1 : 1;
+    if (av > bv) return asc ? 1 : -1;
+    return 0;
+  });
+
+  for (var r = 0; r < rows.length; r++) tbody.appendChild(rows[r]);
+}
+
+function loadHistory() {
+  ajax('/history', function (txt) {
+    var h = parseJson(txt);
+    if (!h) return;
+    renderHistory(h.scans || []);
+  });
+}
+
+function destroyCharts() {
+  for (var i = 0; i < charts.length; i++) {
+    if (charts[i] && charts[i].destroy) charts[i].destroy();
+  }
+  charts = [];
+}
+
+function channelColor(ch) {
+  var colors = [
+    '#3366cc', '#dc3912', '#ff9900', '#109618', '#990099',
+    '#0099c6', '#dd4477', '#66aa00', '#b82e2e', '#316395',
+    '#994499', '#22aa99', '#aaaa11', '#6633cc'
+  ];
+  ch = parseInt(ch, 10);
+  if (isNaN(ch) || ch < 1) return '#777777';
+  return colors[(ch - 1) % colors.length];
+}
+
+function normalizeRssi(rssi) {
+  rssi = parseInt(rssi, 10);
+  if (isNaN(rssi)) rssi = -100;
+  if (rssi < -100) rssi = -100;
+  if (rssi > -30) rssi = -30;
+  return Math.round((rssi + 100) * 100 / 70);
+}
+
+function shortSsid(s) {
+  s = String(s || '');
+  if (s.length > 14) return s.substring(0, 14) + '…';
+  return s;
+}
+
+function labelForNet(n) {
+  return String(n.bssid || '') + ' ' + shortSsid(n.ssid || '');
+}
+
+function channelsLegend(nets) {
+  var seen = {};
+  var html = '';
+  for (var i = 0; i < nets.length; i++) {
+    var ch = nets[i].channel || 0;
+    if (seen[ch]) continue;
+    seen[ch] = true;
+    html += '<span class="legendItem"><span class="swatch" style="background:' + channelColor(ch) + '"></span>CH ' + esc(ch) + '</span>';
+  }
+  return html;
+}
+
+function renderHistory(scans) {
+  destroyCharts();
+  var box = document.getElementById('charts');
+  box.innerHTML = '';
+
+  if (!window.Chart) {
+    document.getElementById('chartInfo').innerHTML = 'Chart.min.js 2.9.3 non trovato: uso il grafico Canvas interno di fallback.';
+  } else {
+    document.getElementById('chartInfo').innerHTML = 'Grafici generati con Chart.js.';
+    if (Chart.defaults && Chart.defaults.global) Chart.defaults.global.animation = false;
+  }
+
+  if (!scans || scans.length === 0) {
+    box.innerHTML = '<p>Nessuno storico disponibile.</p>';
+    return;
+  }
+
+  for (var i = 0; i < scans.length; i++) {
+    var scan = scans[i];
+    var nets = scan.networks || [];
+    var wrap = document.createElement('div');
+    wrap.className = 'chartBox';
+
+    var title = document.createElement('h3');
+    title.innerHTML = 'Scansione ' + esc(scan.time || '-') + ' — reti: ' + esc(scan.total || nets.length);
+    wrap.appendChild(title);
+
+    var scroller = document.createElement('div');
+    scroller.className = 'chartWrap';
+
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.max(680, nets.length * 55);
+    canvas.height = 430;
+    canvas.style.width = canvas.width + 'px';
+    canvas.style.height = canvas.height + 'px';
+    scroller.appendChild(canvas);
+    wrap.appendChild(scroller);
+
+    var legend = document.createElement('div');
+    legend.className = 'legend';
+    legend.innerHTML = channelsLegend(nets);
+    wrap.appendChild(legend);
+
+    box.appendChild(wrap);
+
+    if (window.Chart) makeChartJs(canvas, scan);
+    else makeFallbackCanvas(canvas, scan);
+  }
+}
+
+function makeChartJs(canvas, scan) {
+  var nets = scan.networks || [];
+  var labels = [];
+  var values = [];
+  var colors = [];
+
+  for (var i = 0; i < nets.length; i++) {
+    labels.push(labelForNet(nets[i]));
+    values.push(normalizeRssi(nets[i].rssiMax));
+    colors.push(channelColor(nets[i].channel));
+  }
+
+  var ctx = canvas.getContext('2d');
+  var chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Segnale normalizzato',
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: false,
+      maintainAspectRatio: false,
+      legend: { display: false },
+      tooltips: {
+        callbacks: {
+          label: function (tooltipItem) {
+            var idx = tooltipItem.index;
+            var n = nets[idx] || {};
+            return 'RSSI max: ' + n.rssiMax + ' dBm - CH ' + n.channel + ' - ' + (n.enc || '');
+          }
+        }
+      },
+      scales: {
+        yAxes: [{
+          ticks: { beginAtZero: true, min: 0, max: 100 },
+          scaleLabel: { display: true, labelString: 'Segnale normalizzato' }
+        }],
+        xAxes: [{
+          ticks: { autoSkip: false, minRotation: 90, maxRotation: 90 }
+        }]
+      }
+    }
+  });
+  charts.push(chart);
+}
+
+function makeFallbackCanvas(canvas, scan) {
+  var ctx = canvas.getContext('2d');
+  var nets = scan.networks || [];
+  var w = canvas.width;
+  var h = canvas.height;
+  var left = 45;
+  var top = 20;
+  var bottom = 160;
+  var chartH = h - top - bottom;
+  var gap = 8;
+  var barW = Math.max(14, Math.floor((w - left - 20) / Math.max(1, nets.length)) - gap);
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#bbbbbb';
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(left, top + chartH);
+  ctx.lineTo(w - 10, top + chartH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#555555';
+  ctx.font = '12px Arial';
+  ctx.fillText('100', 8, top + 4);
+  ctx.fillText('0', 22, top + chartH);
+
+  for (var i = 0; i < nets.length; i++) {
+    var n = nets[i];
+    var val = normalizeRssi(n.rssiMax);
+    var bh = Math.round(chartH * val / 100);
+    var x = left + 10 + i * (barW + gap);
+    var y = top + chartH - bh;
+
+    ctx.fillStyle = channelColor(n.channel);
+    ctx.fillRect(x, y, barW, bh);
+
+    ctx.fillStyle = '#222222';
+    ctx.font = '11px Arial';
+    ctx.fillText(String(n.rssiMax) + ' dBm', x - 3, Math.max(12, y - 3));
+
+    ctx.save();
+    ctx.translate(x + barW / 2 + 4, top + chartH + 8);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillText(labelForNet(n), 0, 0);
+    ctx.restore();
+  }
+}
+
+function clearHistory() {
+  if (!confirm('Cancellare lo storico delle scansioni?')) return;
+  ajax('/clear-history', function () {
+    loadAll();
+  });
+}
+
+function initPage() {
+  setupSortHeaders();
+  loadAll();
+}
+</script>
+</body>
+</html>

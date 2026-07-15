@@ -43,9 +43,6 @@ const unsigned long reconnectInterval = 8000; // 8 seconds
 const unsigned long visitInterval = 8000; // 8 seconds
 const unsigned long releOnDuration = 10000;// 1200000;  // 20 minutes in milliseconds
 const unsigned long releOffDuration = 5000; //60000;   // 1 minute in milliseconds
-unsigned long tempoSpentoRele = 0; // Memorizza il tempo di spegnimento del relè
-
-MediaUltimi10 media;
 
 // ==========================================
 // mdoficare i tempi in base alle necessità
@@ -56,6 +53,12 @@ const unsigned long MINUTO = 60000;
 #define TREMINUTI 3 * MINUTO
 #define UNORA 10 * MINUTO   
 #define TEMPO_RIACCENSIONE_RELE 3 * MINUTO // 3 minuti in millisecondi
+
+unsigned long tempoSpentoRele = TEMPO_RIACCENSIONE_RELE; // Memorizza il tempo di spegnimento del relè
+
+MediaUltimi10 media;
+
+
 bool meganeInCarica = false;
 bool stopRicaricaMegane = false;
 //
@@ -71,6 +74,9 @@ unsigned long tempoCaricoGenericoALTO = 0;
 bool releSiPuoAccendere = true;
 
 bool statoPrecedente = LOW;
+
+const int MAX_DATI_NON_VALIDI = 2; // numero di dati non validi consecutivi
+int contatoreDatiNonValidi = 0;
 
 // ===============
 #define DEBUG 0
@@ -164,41 +170,96 @@ void processWebData() {
   }
 }
 
-void handlePayload(String payload) {
-  int separatorIndex = payload.indexOf('-');
-  
-  if (separatorIndex > 0) {
-    String powerStr = payload.substring(0, separatorIndex);
-    String validStr = payload.substring(separatorIndex + 1);
-    
-    int power = powerStr.toInt();
-    int valid = validStr.toInt();
-    // stampa su display esterno (seriale altrimenti)
-
-    int mediaAttuale = media.aggiungi(power);
-    Serial.println(mediaAttuale);
-
-    if (digitalRead(pinRele) == HIGH) {
-        if (power > 3600) {
-            digitalWrite(pinRele, LOW);
-            tempoSpentoRele = millis(); // Registra il momento dello spegnimento
-            prtn("Superato il limite di potenza, spengo il relè e attendo 3 minuti prima di riaccenderlo");
-        }
-    }
-    // Controllo per riaccendere la ricarica dopo 3 minuti se le condizioni lo permettono
-    if (power < 1100 && valid == 1) {
-        if ((millis() - tempoSpentoRele >= TEMPO_RIACCENSIONE_RELE)) {
-            digitalWrite(pinRele, HIGH);
-            prtn("Riaccendo il relè per la ricarica Megane dopo il tempo di attesa");
-        }
-    } else {
-        if (valid != 1) {
-            digitalWrite(pinRele, LOW);
-            tempoSpentoRele = millis(); // Registra il momento dello spegnimento
-            prtn("Dati non validi: spengo il relè e attendo 3 minuti prima di riaccenderlo");
-        }
-    }
+void spegniRele(String motivo) {
+  if (digitalRead(pinRele) == HIGH) {
+    digitalWrite(pinRele, LOW);
   }
+
+  tempoSpentoRele = millis();
+  prtn(motivo);
 }
 
 
+bool stringaNumerica(String s) {
+  if (s.length() == 0) return false;
+
+  for (int i = 0; i < s.length(); i++) {
+    if (!isDigit(s[i])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+void handlePayload(String payload) {
+  payload.trim();
+
+  int separatorIndex = payload.indexOf('-');
+
+  if (separatorIndex <= 0) {
+    spegniRele("Payload non valido: spengo il relè");
+    return;
+  }
+
+  String powerStr = payload.substring(0, separatorIndex);
+  String validStr = payload.substring(separatorIndex + 1);
+
+  powerStr.trim();
+  validStr.trim();
+
+  if (!stringaNumerica(powerStr) || !stringaNumerica(validStr)) {
+    spegniRele("Valori non numerici: spengo il relè");
+    return;
+  }
+
+  int power = powerStr.toInt();
+  int valid = validStr.toInt();
+
+  if (valid != 1) {
+      contatoreDatiNonValidi++;
+
+      prt("Dato non valido consecutivo n. ");
+      prtn(contatoreDatiNonValidi);
+
+      if (contatoreDatiNonValidi >= MAX_DATI_NON_VALIDI) {
+
+          if (digitalRead(pinRele) == HIGH) {
+              digitalWrite(pinRele, LOW);
+              tempoSpentoRele = millis();
+
+              prtn("Dati non validi per circa 1 minuto: spengo il relè");
+          } else {
+              prtn("Dati ancora non validi: relè già spento");
+          }
+      }
+
+      return;
+  }
+
+  // Se arrivo qui, il dato è valido
+  contatoreDatiNonValidi = 0;
+
+  // Da qui in poi il dato è valido
+  int mediaAttuale = media.aggiungi(power);
+  Serial.println(mediaAttuale);
+
+  bool releAcceso = digitalRead(pinRele) == HIGH;
+
+  if (releAcceso) {
+    if (power > 3990) {
+      spegniRele("Superato il limite di potenza: spengo il relè");
+      return;
+    }
+  }
+
+  if (!releAcceso) {
+    if (mediaAttuale < 1400) {
+      if (millis() - tempoSpentoRele >= TEMPO_RIACCENSIONE_RELE) {
+        digitalWrite(pinRele, HIGH);
+        prtn("Riaccendo il relè per la ricarica Megane");
+      }
+    }
+  }
+}

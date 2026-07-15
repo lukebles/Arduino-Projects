@@ -6,7 +6,7 @@
 #include <UniversalTelegramBot.h>
 #include "config.h"
 
-#define DEBUG 0
+#define DEBUG 1
 #define LED_PIN 2
 
 #define LED_ON  LOW
@@ -536,7 +536,7 @@ void handleNewMessages(int numNewMessages) {
 
 // -------- SETUP --------
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   delay(300);
 
   prtn("Avvio");

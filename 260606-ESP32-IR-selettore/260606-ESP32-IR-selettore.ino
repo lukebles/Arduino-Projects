@@ -1,11 +1,9 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <IRremote.hpp>
+#include "config.h"
 
 #define IR_SEND_PIN 26   // Consigliato su ESP32. Eviterei GPIO12.
-
-const char* ssid = "teoles";
-const char* password = "Nanoun-9";
 
 WebServer server(80);
 
@@ -341,7 +339,7 @@ void setup() {
   Serial.println("Connessione al router WiFi...");
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
