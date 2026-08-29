@@ -217,81 +217,131 @@ static String statoTextForCommand() {
   return "nas spento";
 }
 
+// -------- SEQUENZE NAS / 220 --------
+static const unsigned long T_ATTESA_220_PRIMA_SERVO_MS = 10UL * 1000UL;
+
+// Se "accendi" deve prima alimentare la 220, il servo viene azionato
+// 10 secondi dopo senza bloccare loop(), Telegram e web server.
+static bool attesaServoAccensione = false;
+static unsigned long servoAccensioneAtMs = 0;
+
+// Se true, al termine dello spegnimento NAS deve essere tolta anche la 220.
+static bool pending220Off = false;
+
+// Serve a distinguere uno spegnimento richiesto con "spegni" da quello
+// avviato internamente da "220off".
+static bool notificaNasSpento = false;
+
 static void onTransitionCompleted() {
   if (pending == Pending::TO_ACCESO) {
     nasState = NasState::ACCESO;
     pending  = Pending::NONE;
-    sendMsgThrottled(String(TELEGRAM_CHAT_ID), "nas acceso");
+    transitionEndMs = 0;
+    sendMsgImmediate(String(TELEGRAM_CHAT_ID), "nas acceso");
 
   } else if (pending == Pending::TO_SPENTO) {
     nasState = NasState::SPENTO;
     pending  = Pending::NONE;
-    sendMsgThrottled(String(TELEGRAM_CHAT_ID), "nas spento");
+    transitionEndMs = 0;
+
+    // Se lo spegnimento era stato richiesto con il comando "spegni",
+    // segnala il completamento del solo NAS.
+    if (notificaNasSpento) {
+      notificaNasSpento = false;
+      sendMsgImmediate(String(TELEGRAM_CHAT_ID), "nas spento");
+    }
+
+    // Se era pendente un 220off, togli alimentazione solo ora,
+    // cioe' quando il NAS e' considerato realmente spento.
+    if (pending220Off) {
+      pending220Off = false;
+      releSpegni();
+      sendMsgImmediate(
+        String(TELEGRAM_CHAT_ID),
+        "spegnimento completo: nas spento e rete 220 spenta"
+      );
+    }
   }
 }
 
 static void transitionTick() {
+  unsigned long now = millis();
+
+  // Seconda fase di "accendi": dopo 10 s dall'accensione della 220
+  // viene premuto il pulsante del NAS tramite servo.
+  if (attesaServoAccensione && (long)(now - servoAccensioneAtMs) >= 0) {
+    attesaServoAccensione = false;
+    servoAccendi();
+    transitionEndMs = millis() + T_ACCENDI_MS;
+  }
+
   if (nasState != NasState::LAMPEGGIANTE) return;
   if (pending == Pending::NONE) return;
 
-  unsigned long now = millis();
+  // Durante i 10 secondi iniziali di "accendi" il timer dei 4 minuti
+  // non e' ancora partito.
+  if (transitionEndMs == 0) return;
 
+  now = millis();
   if ((long)(now - transitionEndMs) >= 0) {
     onTransitionCompleted();
   }
 }
 
-// -------- ATTESA SPEGNIMENTO 220 --------
-static bool pending220Off = false;
-static unsigned long relayOffAtMs = 0;
-static const unsigned long T_220OFF_DELAY_MS = 60UL * 1000UL;
-
-static void relay220Tick() {
-  if (!pending220Off) return;
-
-  unsigned long now = millis();
-
-  if ((long)(now - relayOffAtMs) >= 0) {
-    pending220Off = false;
-    releSpegni();
-    sendMsgThrottled(String(TELEGRAM_CHAT_ID), "spento nas e rete 220");
-  }
-}
-
 // -------- COMANDI NAS --------
 static void comando_ACCENDI(const String& chatId) {
+  // Conferma sempre immediata della ricezione del comando.
+  sendMsgImmediate(chatId, "comando accendi ricevuto");
+
   if (nasState == NasState::LAMPEGGIANTE) {
-    sendMsgThrottled(chatId, "comando di accensione respinto (lampeggio)");
+    sendMsgImmediate(chatId, "comando accendi rifiutato: nas in transizione");
     return;
   }
 
   if (nasState == NasState::ACCESO) {
-    sendMsgThrottled(chatId, "nas acceso");
+    sendMsgImmediate(chatId, "nas acceso");
     return;
   }
 
-  sendMsgThrottled(chatId, "comando di accensione ricevuto");
-
-  servoAccendi();
-
+  // Da questo momento il NAS e' considerato in fase di accensione.
+  // In questo modo un eventuale 220off viene rifiutato anche durante
+  // i 10 secondi che precedono l'azionamento del servo.
   nasState = NasState::LAMPEGGIANTE;
   pending  = Pending::TO_ACCESO;
+  transitionEndMs = 0;
+  notificaNasSpento = false;
+
+  if (!rete220Accesa) {
+    // Prima alimenta NAS e altri apparecchi collegati al rele'.
+    releAccendi();
+
+    // Poi aspetta 10 s prima di premere il pulsante del NAS.
+    attesaServoAccensione = true;
+    servoAccensioneAtMs = millis() + T_ATTESA_220_PRIMA_SERVO_MS;
+    return;
+  }
+
+  // Se la 220 era gia' presente, il NAS puo' essere acceso subito.
+  servoAccendi();
   transitionEndMs = millis() + T_ACCENDI_MS;
 }
 
 static void comando_SPEGNI(const String& chatId) {
+  // Conferma sempre immediata della ricezione del comando.
+  sendMsgImmediate(chatId, "comando spegni ricevuto");
+
   if (nasState == NasState::LAMPEGGIANTE) {
-    sendMsgThrottled(chatId, "comando di spegnimento respinto (lampeggio)");
+    sendMsgImmediate(chatId, "comando spegni rifiutato: nas in transizione");
     return;
   }
 
   if (nasState == NasState::SPENTO) {
-    sendMsgThrottled(chatId, "nas spento");
+    sendMsgImmediate(chatId, "nas spento");
     return;
   }
 
-  sendMsgThrottled(chatId, "comando di spegnimento ricevuto");
-
+  // "spegni" riguarda solo il NAS: non modifica mai il rele' 220 V.
+  notificaNasSpento = true;
   servoSpegni();
 
   nasState = NasState::LAMPEGGIANTE;
@@ -300,41 +350,74 @@ static void comando_SPEGNI(const String& chatId) {
 }
 
 static void comando_STATO(const String& chatId) {
-  sendMsgThrottled(chatId, statoTextForCommand());
+  sendMsgImmediate(chatId, "comando stato ricevuto");
+  sendMsgImmediate(chatId, statoTextForCommand());
 }
 
 // -------- COMANDI 220 --------
 static void comando_220ON(const String& chatId) {
+  // Conferma sempre immediata della ricezione del comando.
+  sendMsgImmediate(chatId, "comando 220on ricevuto");
+
   releAccendi();
+
+  // Un nuovo 220on annulla l'eventuale richiesta pendente di togliere
+  // alimentazione al termine dello spegnimento del NAS.
   pending220Off = false;
-  sendMsgThrottled(chatId, "accesa rete 220");
+
+  sendMsgImmediate(chatId, "rete 220 accesa");
 }
 
 static void comando_220OFF(const String& chatId) {
+  // Conferma sempre immediata della ricezione del comando.
+  sendMsgImmediate(chatId, "comando 220off ricevuto");
+
   if (nasState == NasState::LAMPEGGIANTE) {
-    sendMsgThrottled(chatId, "riprovare tra qualche minuto");
+    if (pending == Pending::TO_ACCESO) {
+      // Mai togliere la 220 mentre il NAS si sta accendendo.
+      sendMsgImmediate(chatId, "comando 220off rifiutato: nas in fase di accensione");
+      return;
+    }
+
+    if (pending == Pending::TO_SPENTO) {
+      // Il NAS si sta gia' spegnendo: non premere di nuovo il servo.
+      // Togli la 220 soltanto quando lo spegnimento sara' completato.
+      pending220Off = true;
+      return;
+    }
+
+    sendMsgImmediate(chatId, "comando 220off rifiutato: nas in transizione");
     return;
   }
 
   if (nasState == NasState::ACCESO) {
-    comando_SPEGNI(chatId);
-
+    // Prima spegni correttamente il NAS, poi verra' tolta la 220
+    // da onTransitionCompleted().
     pending220Off = true;
-    relayOffAtMs = millis() + T_220OFF_DELAY_MS;
+    notificaNasSpento = false;
 
+    servoSpegni();
+
+    nasState = NasState::LAMPEGGIANTE;
+    pending  = Pending::TO_SPENTO;
+    transitionEndMs = millis() + T_SPEGNI_MS;
     return;
   }
 
+  // NAS gia' spento: la 220 puo' essere tolta immediatamente.
   if (nasState == NasState::SPENTO) {
-    releSpegni();
     pending220Off = false;
-    sendMsgThrottled(chatId, "spenta rete 220");
-    return;
+    releSpegni();
+    sendMsgImmediate(
+      chatId,
+      "spegnimento completo: nas spento e rete 220 spenta"
+    );
   }
 }
 
 static void comando_220STATO(const String& chatId) {
-  sendMsgThrottled(chatId, stato220Text());
+  sendMsgImmediate(chatId, "comando 220stato ricevuto");
+  sendMsgImmediate(chatId, stato220Text());
 }
 
 // -------- WEBSERVER --------
@@ -587,7 +670,6 @@ void loop() {
   server.handleClient();
 
   transitionTick();
-  relay220Tick();
 
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');

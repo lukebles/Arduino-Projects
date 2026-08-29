@@ -2,10 +2,12 @@
 <html>
 <head>
   <meta charset="utf-8">
+
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1.0"
   >
+
   <title>ESP32 Meteo</title>
 
   <style>
@@ -50,10 +52,16 @@
     }
 
     .status {
-      padding: 10px;
+      margin-bottom: 8px;
+      padding: 9px 10px;
       background: #f7f7f7;
       border: 1px solid #dddddd;
-      line-height: 1.55;
+      line-height: 1.45;
+    }
+
+    .status.ok {
+      background: #f2fff2;
+      border-color: #8fbe8f;
     }
 
     .status.error {
@@ -82,7 +90,7 @@
 
     .chart-box {
       position: relative;
-      height: 390px;
+      height: 400px;
     }
 
     .footnote {
@@ -101,7 +109,7 @@
       }
 
       .chart-box {
-        height: 330px;
+        height: 340px;
       }
     }
   </style>
@@ -110,14 +118,25 @@
 <body>
   <div class="page">
     <h1>Centralina meteo ESP32</h1>
+
     <p class="subtitle">
-      Medie orarie delle ultime 24 ore e medie giornaliere
-      degli ultimi 30 giorni
+      Ultime 24 ore con dettaglio di 15 minuti
+      e medie giornaliere degli ultimi 30 giorni
     </p>
 
     <div class="panel">
-      <div id="status" class="status">
+      <div
+        id="clockStatus"
+        class="status"
+      >
         Sincronizzazione dell'orologio in corso...
+      </div>
+
+      <div
+        id="socketStatus"
+        class="status"
+      >
+        Collegamento WebSocket in corso...
       </div>
 
       <table class="values">
@@ -125,18 +144,27 @@
           <th>Ultima misura</th>
           <td id="latestTime">-</td>
         </tr>
+
+        <tr>
+          <th>Sequenza</th>
+          <td id="latestSequence">-</td>
+        </tr>
+
         <tr>
           <th>Sensore</th>
           <td id="latestSensor">-</td>
         </tr>
+
         <tr>
           <th>Temperatura</th>
           <td id="latestTemperature">-</td>
         </tr>
+
         <tr>
           <th>Umidità</th>
           <td id="latestHumidity">-</td>
         </tr>
+
         <tr>
           <th>Pressione</th>
           <td id="latestPressure">-</td>
@@ -146,21 +174,28 @@
 
     <div class="panel">
       <h2>Ultime 24 ore</h2>
+
       <div class="chart-box">
-        <canvas id="hourlyChart"></canvas>
+        <canvas id="quarterHourChart"></canvas>
       </div>
+
       <div class="footnote">
-        Il punto dell'ora corrente è una media parziale.
+        Un punto ogni 15 minuti. Ogni punto è la media
+        delle misure ricevute nel relativo intervallo.
+        L'intervallo corrente è una media parziale.
       </div>
     </div>
 
     <div class="panel">
       <h2>Ultimi 30 giorni</h2>
+
       <div class="chart-box">
         <canvas id="dailyChart"></canvas>
       </div>
+
       <div class="footnote">
-        Il punto del giorno corrente è una media parziale.
+        Ogni punto è la media delle misure ricevute
+        durante il giorno. Il giorno corrente è parziale.
       </div>
     </div>
   </div>
@@ -168,101 +203,185 @@
   <script src="/chart.min.js"></script>
 
   <script>
-    var hourlyChart = null;
+    var quarterHourChart = null;
     var dailyChart = null;
 
-    function setStatus(message, isError) {
-      var element = document.getElementById("status");
-      element.className = isError ? "status error" : "status";
+    var socket = null;
+    var reconnectTimer = null;
+
+    var historyRequestRunning = false;
+    var historyReloadPending = false;
+
+    function setElementStatus(
+      elementId,
+      message,
+      state
+    ) {
+      var element =
+        document.getElementById(elementId);
+
+      element.className =
+        "status" +
+        (state ? " " + state : "");
+
       element.innerHTML = message;
     }
 
-    function formatValue(value, decimals, suffix) {
-      if (value === null || typeof value === "undefined") {
+    function formatValue(
+      value,
+      decimals,
+      suffix
+    ) {
+      if (
+        value === null ||
+        typeof value === "undefined"
+      ) {
         return "Non disponibile";
       }
 
-      return Number(value).toFixed(decimals) + " " + suffix;
+      return (
+        Number(value).toFixed(decimals) +
+        " " +
+        suffix
+      );
     }
 
-    function sendForm(url, body, callback) {
-      var xhr = new XMLHttpRequest();
+    function sendForm(
+      url,
+      body,
+      callback
+    ) {
+      var xhr =
+        new XMLHttpRequest();
 
-      xhr.open("POST", url, true);
+      xhr.open(
+        "POST",
+        url,
+        true
+      );
+
       xhr.setRequestHeader(
         "Content-Type",
         "application/x-www-form-urlencoded"
       );
 
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-          callback(xhr);
-        }
-      };
+      xhr.onreadystatechange =
+        function () {
+          if (
+            xhr.readyState === 4
+          ) {
+            callback(xhr);
+          }
+        };
 
       xhr.send(body);
     }
 
-    function getJson(url, callback) {
-      var xhr = new XMLHttpRequest();
+    function getJson(
+      url,
+      callback
+    ) {
+      var xhr =
+        new XMLHttpRequest();
 
       xhr.open(
         "GET",
-        url + "?nocache=" + new Date().getTime(),
+        url +
+          "?nocache=" +
+          new Date().getTime(),
         true
       );
 
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-          callback(xhr);
-        }
-      };
+      xhr.onreadystatechange =
+        function () {
+          if (
+            xhr.readyState === 4
+          ) {
+            callback(xhr);
+          }
+        };
 
       xhr.send(null);
     }
 
-    function syncBrowserTime(callback) {
-      var now = new Date();
-      var epoch = Math.floor(now.getTime() / 1000);
+    function syncBrowserTime(
+      callback
+    ) {
+      var now =
+        new Date();
 
-      // getTimezoneOffset restituisce il segno opposto:
-      // in Italia, in estate, vale -120.
-      var offsetMinutes = -now.getTimezoneOffset();
+      var epoch =
+        Math.floor(
+          now.getTime() / 1000
+        );
+
+      /*
+       * getTimezoneOffset ha il segno opposto.
+       *
+       * In Italia d'estate restituisce -120,
+       * quindi inviamo +120.
+       */
+      var offsetMinutes =
+        -now.getTimezoneOffset();
 
       var body =
-        "epoch=" + encodeURIComponent(epoch) +
-        "&offset=" + encodeURIComponent(offsetMinutes);
+        "epoch=" +
+        encodeURIComponent(epoch) +
+        "&offset=" +
+        encodeURIComponent(
+          offsetMinutes
+        );
 
-      sendForm("/api/time", body, function (xhr) {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (callback) {
-            callback(true);
-          }
-        } else {
-          setStatus(
-            "Impossibile inviare data e ora all'ESP32.",
-            true
-          );
+      sendForm(
+        "/api/time",
+        body,
+        function (xhr) {
+          if (
+            xhr.status >= 200 &&
+            xhr.status < 300
+          ) {
+            setElementStatus(
+              "clockStatus",
+              "Data e ora inviate correttamente all'ESP32.",
+              "ok"
+            );
 
-          if (callback) {
-            callback(false);
+            if (callback) {
+              callback(true);
+            }
+          } else {
+            setElementStatus(
+              "clockStatus",
+              "Impossibile inviare data e ora all'ESP32.",
+              "error"
+            );
+
+            if (callback) {
+              callback(false);
+            }
           }
         }
-      });
+      );
     }
 
-    function makeDatasets(windowData) {
+    function makeDatasets(
+      windowData
+    ) {
       return [
         {
           label: "Temperatura (°C)",
           data: windowData.temperature,
           yAxisID: "temperatureAxis",
+
           borderColor: "#c0392b",
           backgroundColor: "#c0392b",
+
           fill: false,
           borderWidth: 2,
-          pointRadius: 2,
+
+          pointRadius: 1,
           pointHoverRadius: 4,
+
           lineTension: 0.15,
           spanGaps: false
         },
@@ -270,12 +389,16 @@
           label: "Umidità (%)",
           data: windowData.humidity,
           yAxisID: "humidityAxis",
+
           borderColor: "#2874a6",
           backgroundColor: "#2874a6",
+
           fill: false,
           borderWidth: 2,
-          pointRadius: 2,
+
+          pointRadius: 1,
           pointHoverRadius: 4,
+
           lineTension: 0.15,
           spanGaps: false
         },
@@ -283,12 +406,16 @@
           label: "Pressione (hPa)",
           data: windowData.pressure,
           yAxisID: "pressureAxis",
+
           borderColor: "#1e8449",
           backgroundColor: "#1e8449",
+
           fill: false,
           borderWidth: 2,
-          pointRadius: 2,
+
+          pointRadius: 1,
           pointHoverRadius: 4,
+
           lineTension: 0.15,
           spanGaps: false
         }
@@ -299,43 +426,54 @@
       return {
         responsive: true,
         maintainAspectRatio: false,
+
         animation: {
           duration: 0
         },
+
         hover: {
           animationDuration: 0
         },
+
         responsiveAnimationDuration: 0,
+
         legend: {
           display: true,
           position: "top"
         },
+
         tooltips: {
           mode: "index",
           intersect: false
         },
+
         scales: {
           xAxes: [
             {
               ticks: {
                 autoSkip: true,
+                maxTicksLimit: 16,
                 maxRotation: 45,
                 minRotation: 0
               },
+
               gridLines: {
                 display: true
               }
             }
           ],
+
           yAxes: [
             {
               id: "temperatureAxis",
               type: "linear",
               position: "left",
+
               scaleLabel: {
                 display: true,
                 labelString: "Temperatura °C"
               },
+
               ticks: {
                 beginAtZero: false
               }
@@ -344,14 +482,17 @@
               id: "humidityAxis",
               type: "linear",
               position: "right",
+
               scaleLabel: {
                 display: true,
                 labelString: "Umidità %"
               },
+
               ticks: {
                 min: 0,
                 max: 100
               },
+
               gridLines: {
                 drawOnChartArea: false
               }
@@ -360,13 +501,16 @@
               id: "pressureAxis",
               type: "linear",
               position: "right",
+
               scaleLabel: {
                 display: true,
                 labelString: "Pressione hPa"
               },
+
               ticks: {
                 beginAtZero: false
               },
+
               gridLines: {
                 drawOnChartArea: false
               }
@@ -376,149 +520,366 @@
       };
     }
 
-    function updateChart(existingChart, canvasId, windowData) {
+    function updateChart(
+      existingChart,
+      canvasId,
+      windowData
+    ) {
       if (!existingChart) {
         return new Chart(
-          document.getElementById(canvasId).getContext("2d"),
+          document
+            .getElementById(canvasId)
+            .getContext("2d"),
           {
             type: "line",
+
             data: {
               labels: windowData.labels,
-              datasets: makeDatasets(windowData)
+              datasets:
+                makeDatasets(windowData)
             },
+
             options: chartOptions()
           }
         );
       }
 
-      existingChart.data.labels = windowData.labels;
-      existingChart.data.datasets[0].data =
+      existingChart.data.labels =
+        windowData.labels;
+
+      existingChart
+        .data
+        .datasets[0]
+        .data =
         windowData.temperature;
-      existingChart.data.datasets[1].data =
+
+      existingChart
+        .data
+        .datasets[1]
+        .data =
         windowData.humidity;
-      existingChart.data.datasets[2].data =
+
+      existingChart
+        .data
+        .datasets[2]
+        .data =
         windowData.pressure;
+
       existingChart.update(0);
 
       return existingChart;
     }
 
-    function updateLatest(latest) {
-      if (!latest || !latest.valid) {
-        document.getElementById("latestTime").innerHTML =
+    function updateLatest(
+      latest
+    ) {
+      if (
+        !latest ||
+        !latest.valid
+      ) {
+        document
+          .getElementById("latestTime")
+          .innerHTML =
           "Nessuna misura ricevuta";
-        document.getElementById("latestSensor").innerHTML = "-";
-        document.getElementById(
-          "latestTemperature"
-        ).innerHTML = "-";
-        document.getElementById("latestHumidity").innerHTML = "-";
-        document.getElementById("latestPressure").innerHTML = "-";
+
+        document
+          .getElementById("latestSequence")
+          .innerHTML = "-";
+
+        document
+          .getElementById("latestSensor")
+          .innerHTML = "-";
+
+        document
+          .getElementById("latestTemperature")
+          .innerHTML = "-";
+
+        document
+          .getElementById("latestHumidity")
+          .innerHTML = "-";
+
+        document
+          .getElementById("latestPressure")
+          .innerHTML = "-";
+
         return;
       }
 
-      document.getElementById("latestTime").innerHTML =
-        latest.time || "Ricevuta prima della sincronizzazione";
-      document.getElementById("latestSensor").innerHTML =
+      document
+        .getElementById("latestTime")
+        .innerHTML =
+        latest.time ||
+        "Ricevuta prima della sincronizzazione";
+
+      document
+        .getElementById("latestSequence")
+        .innerHTML =
+        latest.sequence;
+
+      document
+        .getElementById("latestSensor")
+        .innerHTML =
         latest.sensor || "-";
-      document.getElementById(
-        "latestTemperature"
-      ).innerHTML = formatValue(
-        latest.temperature,
-        2,
-        "°C"
-      );
-      document.getElementById(
-        "latestHumidity"
-      ).innerHTML = formatValue(
-        latest.humidity,
-        2,
-        "%"
-      );
-      document.getElementById(
-        "latestPressure"
-      ).innerHTML = formatValue(
-        latest.pressure,
-        2,
-        "hPa"
-      );
+
+      document
+        .getElementById("latestTemperature")
+        .innerHTML =
+        formatValue(
+          latest.temperature,
+          2,
+          "°C"
+        );
+
+      document
+        .getElementById("latestHumidity")
+        .innerHTML =
+        formatValue(
+          latest.humidity,
+          2,
+          "%"
+        );
+
+      document
+        .getElementById("latestPressure")
+        .innerHTML =
+        formatValue(
+          latest.pressure,
+          2,
+          "hPa"
+        );
+    }
+
+    function finishHistoryRequest() {
+      historyRequestRunning = false;
+
+      if (historyReloadPending) {
+        historyReloadPending = false;
+        loadHistory();
+      }
     }
 
     function loadHistory() {
-      getJson("/api/history", function (xhr) {
-        if (xhr.status < 200 || xhr.status >= 300) {
-          setStatus(
-            "Errore durante il caricamento dei dati.",
-            true
-          );
-          return;
-        }
-
-        var data;
-
-        try {
-          data = JSON.parse(xhr.responseText);
-        } catch (error) {
-          setStatus(
-            "Risposta JSON non valida.",
-            true
-          );
-          return;
-        }
-
-        updateLatest(data.latest);
-
-        if (!data.timeValid || !data.hourly || !data.daily) {
-          setStatus(
-            "L'orologio non è ancora sincronizzato. " +
-            "Controlla che data e ora del dispositivo siano corrette.",
-            true
-          );
-          return;
-        }
-
-        setStatus(
-          "Ora ESP32: <strong>" +
-          data.deviceTime +
-          "</strong> &nbsp;|&nbsp; " +
-          "Pagina aggiornata automaticamente ogni minuto.",
-          false
-        );
-
-        hourlyChart = updateChart(
-          hourlyChart,
-          "hourlyChart",
-          data.hourly
-        );
-
-        dailyChart = updateChart(
-          dailyChart,
-          "dailyChart",
-          data.daily
-        );
-      });
-    }
-
-    function startPage() {
-      if (typeof Chart === "undefined") {
-        setStatus(
-          "Chart.js non è stato caricato. " +
-          "Verifica che /data/chart.min.js sia presente in LittleFS.",
-          true
-        );
+      if (historyRequestRunning) {
+        historyReloadPending = true;
         return;
       }
 
-      syncBrowserTime(function () {
-        loadHistory();
-      });
+      historyRequestRunning = true;
 
-      // Aggiornamento dei grafici.
-      window.setInterval(loadHistory, 60000);
+      getJson(
+        "/api/history",
+        function (xhr) {
+          if (
+            xhr.status < 200 ||
+            xhr.status >= 300
+          ) {
+            setElementStatus(
+              "clockStatus",
+              "Errore durante il caricamento dei dati.",
+              "error"
+            );
 
-      // Nuova sincronizzazione per correggere deriva e ora legale.
-      window.setInterval(function () {
-        syncBrowserTime(null);
-      }, 5 * 60 * 1000);
+            finishHistoryRequest();
+            return;
+          }
+
+          var data;
+
+          try {
+            data =
+              JSON.parse(
+                xhr.responseText
+              );
+          } catch (error) {
+            setElementStatus(
+              "clockStatus",
+              "Risposta JSON non valida.",
+              "error"
+            );
+
+            finishHistoryRequest();
+            return;
+          }
+
+          updateLatest(
+            data.latest
+          );
+
+          if (
+            !data.timeValid ||
+            !data.quarterHour ||
+            !data.daily
+          ) {
+            setElementStatus(
+              "clockStatus",
+              "L'orologio non è ancora sincronizzato.",
+              "error"
+            );
+
+            finishHistoryRequest();
+            return;
+          }
+
+          setElementStatus(
+            "clockStatus",
+            "Ora ESP32: <strong>" +
+              data.deviceTime +
+              "</strong>",
+            "ok"
+          );
+
+          quarterHourChart =
+            updateChart(
+              quarterHourChart,
+              "quarterHourChart",
+              data.quarterHour
+            );
+
+          dailyChart =
+            updateChart(
+              dailyChart,
+              "dailyChart",
+              data.daily
+            );
+
+          finishHistoryRequest();
+        }
+      );
+    }
+
+    function scheduleReconnect() {
+      if (
+        reconnectTimer !== null
+      ) {
+        return;
+      }
+
+      reconnectTimer =
+        window.setTimeout(
+          function () {
+            reconnectTimer = null;
+            connectWebSocket();
+          },
+          3000
+        );
+    }
+
+    function connectWebSocket() {
+      var WebSocketClass =
+        window.WebSocket ||
+        window.MozWebSocket;
+
+      if (!WebSocketClass) {
+        setElementStatus(
+          "socketStatus",
+          "Questo browser non supporta WebSocket.",
+          "error"
+        );
+
+        return;
+      }
+
+      var host =
+        window.location.hostname;
+
+      if (!host) {
+        host = "192.168.4.1";
+      }
+
+      try {
+        socket =
+          new WebSocketClass(
+            "ws://" +
+            host +
+            ":81/"
+          );
+      } catch (error) {
+        setElementStatus(
+          "socketStatus",
+          "Impossibile creare il collegamento WebSocket.",
+          "error"
+        );
+
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen =
+        function () {
+          setElementStatus(
+            "socketStatus",
+            "WebSocket collegato: la pagina si aggiorna " +
+              "quando arriva una misura.",
+            "ok"
+          );
+        };
+
+      socket.onmessage =
+        function (event) {
+          if (
+            event.data === "measurement" ||
+            event.data === "refresh"
+          ) {
+            loadHistory();
+          }
+        };
+
+      socket.onerror =
+        function () {
+          setElementStatus(
+            "socketStatus",
+            "Errore WebSocket.",
+            "error"
+          );
+        };
+
+      socket.onclose =
+        function () {
+          setElementStatus(
+            "socketStatus",
+            "WebSocket scollegato. " +
+              "Nuovo tentativo tra 3 secondi.",
+            "error"
+          );
+
+          scheduleReconnect();
+        };
+    }
+
+    function startPage() {
+      if (
+        typeof Chart === "undefined"
+      ) {
+        setElementStatus(
+          "clockStatus",
+          "Chart.js non è stato caricato. " +
+            "Verifica il file data/chart.min.js.",
+          "error"
+        );
+
+        return;
+      }
+
+      connectWebSocket();
+
+      syncBrowserTime(
+        function () {
+          loadHistory();
+        }
+      );
+
+      /*
+       * Correzione dell'orologio ogni 5 minuti.
+       *
+       * I grafici non vengono aggiornati con polling:
+       * sono aggiornati dai messaggi WebSocket.
+       */
+      window.setInterval(
+        function () {
+          syncBrowserTime(null);
+        },
+        5 * 60 * 1000
+      );
     }
 
     window.onload = startPage;

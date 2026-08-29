@@ -1,10 +1,14 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <LittleFS.h>
+
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_timer.h>
+#include <esp_err.h>
+
 #include <time.h>
 
 // ======================================================
@@ -20,29 +24,32 @@
 #define SENSOR_BME280  1
 #define SENSOR_BMP280  2
 
-const char *AP_SSID     = "ESP32-Meteo";
-const char *AP_PASSWORD = "meteo1234";   // minimo 8 caratteri
+const char *AP_SSID = "ESP32-Meteo";
+const char *AP_PASSWORD = "meteo1234";
 
 constexpr uint8_t MAX_AP_CLIENTS = 4;
+constexpr uint16_t HTTP_PORT = 80;
+constexpr uint16_t WEBSOCKET_PORT = 81;
 
-constexpr size_t HOURLY_POINTS = 24;
-constexpr size_t DAILY_POINTS  = 30;
+// 24 ore con un punto ogni 15 minuti.
+constexpr size_t QUARTER_HOUR_POINTS = 96;
 
-constexpr uint32_t STORAGE_MAGIC   = 0x4D455445; // "METE"
-constexpr uint16_t STORAGE_VERSION = 1;
+// Ultimi 30 giorni.
+constexpr size_t DAILY_POINTS = 30;
 
-// Salvataggio periodico dello stato corrente.
-// Riducilo se vuoi perdere meno campioni in caso di spegnimento improvviso.
-constexpr int64_t SAVE_INTERVAL_US = 10LL * 60LL * 1000000LL;
+constexpr uint32_t QUARTER_HOUR_SECONDS = 15UL * 60UL;
+constexpr uint32_t DAY_SECONDS = 24UL * 60UL * 60UL;
+
+constexpr uint32_t STORAGE_MAGIC = 0x4D455445;
+constexpr uint16_t STORAGE_VERSION = 2;
+
+// Salva l'intervallo corrente al massimo ogni 15 minuti.
+constexpr int64_t SAVE_INTERVAL_US =
+  15LL * 60LL * 1000000LL;
 
 // ======================================================
-// FORMATO PACCHETTO AMBIENTALE
+// PACCHETTO ESP-NOW
 // ======================================================
-//
-// temp_x100  = temperatura °C x 100
-// hum_x100   = umidità % x 100, oppure -1 se non disponibile
-// press_x100 = pressione hPa x 100
-//
 
 struct __attribute__((packed)) PacketEnvironment {
   uint8_t nodeId;
@@ -60,25 +67,30 @@ struct __attribute__((packed)) PacketEnvironment {
 
 struct ReceivedMeasurement {
   uint8_t sourceMac[6];
+
   uint32_t seq;
+
   float temperature;
   float humidity;
   float pressure;
+
   uint8_t sensorType;
   uint8_t humidityValid;
 };
 
 enum ValueFlags : uint8_t {
-  VALUE_TEMP  = 1 << 0,
-  VALUE_HUM   = 1 << 1,
+  VALUE_TEMP = 1 << 0,
+  VALUE_HUM = 1 << 1,
   VALUE_PRESS = 1 << 2
 };
 
 struct HistoryPoint {
   uint32_t bucketStartLocal;
+
   float temperature;
   float humidity;
   float pressure;
+
   uint8_t validFlags;
   uint8_t reserved[3];
 };
@@ -103,26 +115,24 @@ struct PersistedState {
   uint16_t version;
   uint16_t structSize;
 
-  HistoryPoint hourly[HOURLY_POINTS];
-  uint8_t hourlyCount;
-  uint8_t hourlyHead;
-  uint8_t reservedHourly[2];
+  HistoryPoint quarterHour[QUARTER_HOUR_POINTS];
+  uint16_t quarterHourCount;
 
   HistoryPoint daily[DAILY_POINTS];
-  uint8_t dailyCount;
-  uint8_t dailyHead;
-  uint8_t reservedDaily[2];
+  uint16_t dailyCount;
 
-  Accumulator currentHour;
+  Accumulator currentQuarterHour;
   Accumulator currentDay;
 };
 
 struct LatestMeasurement {
   uint32_t localEpoch;
   uint32_t seq;
+
   float temperature;
   float humidity;
   float pressure;
+
   uint8_t sensorType;
   uint8_t humidityValid;
   uint8_t valid;
@@ -133,7 +143,9 @@ struct LatestMeasurement {
 // GLOBALI
 // ======================================================
 
-WebServer server(80);
+WebServer server(HTTP_PORT);
+WebSocketsServer webSocket(WEBSOCKET_PORT);
+
 QueueHandle_t receivedQueue = nullptr;
 
 PersistedState state;
@@ -141,16 +153,22 @@ LatestMeasurement latestMeasurement = {};
 
 bool historyDirty = false;
 bool forceHistorySave = false;
+
 int64_t lastHistorySaveUs = 0;
 
-// L'orologio è impostato dal browser.
-// clockBaseLocalEpoch contiene già la correzione del fuso orario.
+// Ora locale impostata dal browser.
 bool clockValid = false;
+
 uint64_t clockBaseLocalEpoch = 0;
 int64_t clockBaseMicros = 0;
+
 int32_t browserUtcOffsetMinutes = 0;
 
 uint32_t lastRolloverCheckMs = 0;
+
+
+volatile uint32_t espNowCallbackCount = 0;
+volatile int espNowLastPacketLength = 0;
 
 // ======================================================
 // UTILITY
@@ -163,8 +181,12 @@ void stampaMacBytes(const uint8_t *mac) {
     macStr,
     sizeof(macStr),
     "%02X:%02X:%02X:%02X:%02X:%02X",
-    mac[0], mac[1], mac[2],
-    mac[3], mac[4], mac[5]
+    mac[0],
+    mac[1],
+    mac[2],
+    mac[3],
+    mac[4],
+    mac[5]
   );
 
   Serial.print(macStr);
@@ -174,8 +196,10 @@ const char *nomeSensore(uint8_t sensorType) {
   switch (sensorType) {
     case SENSOR_BME280:
       return "BME280";
+
     case SENSOR_BMP280:
       return "BMP280";
+
     default:
       return "Sconosciuto";
   }
@@ -186,162 +210,314 @@ uint32_t currentLocalEpoch() {
     return 0;
   }
 
-  int64_t elapsedMicros = esp_timer_get_time() - clockBaseMicros;
-  uint64_t elapsedSeconds = static_cast<uint64_t>(elapsedMicros / 1000000LL);
+  int64_t elapsedMicros =
+    esp_timer_get_time() -
+    clockBaseMicros;
 
-  return static_cast<uint32_t>(clockBaseLocalEpoch + elapsedSeconds);
+  uint64_t elapsedSeconds =
+    static_cast<uint64_t>(
+      elapsedMicros / 1000000LL
+    );
+
+  return static_cast<uint32_t>(
+    clockBaseLocalEpoch +
+    elapsedSeconds
+  );
 }
 
-void setClockFromBrowser(uint32_t utcEpoch, int32_t utcOffsetMinutes) {
-  browserUtcOffsetMinutes = utcOffsetMinutes;
+void setClockFromBrowser(
+  uint32_t utcEpoch,
+  int32_t utcOffsetMinutes
+) {
+  browserUtcOffsetMinutes =
+    utcOffsetMinutes;
 
   int64_t localEpoch =
     static_cast<int64_t>(utcEpoch) +
-    static_cast<int64_t>(utcOffsetMinutes) * 60LL;
+    static_cast<int64_t>(
+      utcOffsetMinutes
+    ) *
+    60LL;
 
   if (localEpoch < 0) {
     localEpoch = 0;
   }
 
-  clockBaseLocalEpoch = static_cast<uint64_t>(localEpoch);
-  clockBaseMicros = esp_timer_get_time();
+  clockBaseLocalEpoch =
+    static_cast<uint64_t>(
+      localEpoch
+    );
+
+  clockBaseMicros =
+    esp_timer_get_time();
+
   clockValid = true;
 }
 
-String formatLocalEpoch(uint32_t localEpoch, const char *format) {
-  time_t raw = static_cast<time_t>(localEpoch);
-  struct tm tmValue;
+String formatLocalEpoch(
+  uint32_t localEpoch,
+  const char *format
+) {
+  time_t rawTime =
+    static_cast<time_t>(
+      localEpoch
+    );
 
-  gmtime_r(&raw, &tmValue);
+  struct tm timeInfo;
+
+  gmtime_r(
+    &rawTime,
+    &timeInfo
+  );
 
   char buffer[32];
-  strftime(buffer, sizeof(buffer), format, &tmValue);
+
+  strftime(
+    buffer,
+    sizeof(buffer),
+    format,
+    &timeInfo
+  );
 
   return String(buffer);
 }
 
-String jsonFloat(float value, bool valid, uint8_t decimals = 2) {
-  if (!valid || isnan(value) || isinf(value)) {
+String jsonFloat(
+  float value,
+  bool valid,
+  unsigned int decimals = 2
+) {
+  if (
+    !valid ||
+    isnan(value) ||
+    isinf(value)
+  ) {
     return "null";
   }
 
-  return String(value, static_cast<unsigned int>(decimals));
+  return String(
+    value,
+    decimals
+  );
 }
 
 // ======================================================
-// STORICO SU LITTLEFS
+// LITTLEFS E PERSISTENZA
 // ======================================================
 
 void resetState() {
-  memset(&state, 0, sizeof(state));
+  memset(
+    &state,
+    0,
+    sizeof(state)
+  );
 
-  state.magic = STORAGE_MAGIC;
-  state.version = STORAGE_VERSION;
-  state.structSize = sizeof(PersistedState);
+  state.magic =
+    STORAGE_MAGIC;
+
+  state.version =
+    STORAGE_VERSION;
+
+  state.structSize =
+    sizeof(PersistedState);
+}
+
+bool validateState() {
+  return
+    state.magic ==
+      STORAGE_MAGIC &&
+    state.version ==
+      STORAGE_VERSION &&
+    state.structSize ==
+      sizeof(PersistedState) &&
+    state.quarterHourCount <=
+      QUARTER_HOUR_POINTS &&
+    state.dailyCount <=
+      DAILY_POINTS;
 }
 
 bool loadState() {
-  if (!LittleFS.exists("/history.bin")) {
-    Serial.println("Storico non ancora presente");
+  if (
+    !LittleFS.exists(
+      "/history.bin"
+    )
+  ) {
+    Serial.println(
+      "Storico non ancora presente"
+    );
+
     resetState();
     return false;
   }
 
-  File file = LittleFS.open("/history.bin", "r");
+  File file =
+    LittleFS.open(
+      "/history.bin",
+      "r"
+    );
 
   if (!file) {
-    Serial.println("Impossibile aprire /history.bin");
+    Serial.println(
+      "Impossibile aprire /history.bin"
+    );
+
     resetState();
     return false;
   }
 
-  if (file.size() != sizeof(PersistedState)) {
-    Serial.println("Dimensione storico non compatibile: inizializzazione");
-    file.close();
-    resetState();
-    return false;
-  }
-
-  size_t bytesRead = file.read(
-    reinterpret_cast<uint8_t *>(&state),
+  if (
+    file.size() !=
     sizeof(PersistedState)
-  );
+  ) {
+    Serial.println(
+      "Storico di formato precedente: "
+      "verrà reinizializzato"
+    );
+
+    file.close();
+
+    LittleFS.remove(
+      "/history.bin"
+    );
+
+    resetState();
+    return false;
+  }
+
+  size_t bytesRead =
+    file.read(
+      reinterpret_cast<uint8_t *>(
+        &state
+      ),
+      sizeof(PersistedState)
+    );
 
   file.close();
 
   if (
-    bytesRead != sizeof(PersistedState) ||
-    state.magic != STORAGE_MAGIC ||
-    state.version != STORAGE_VERSION ||
-    state.structSize != sizeof(PersistedState)
+    bytesRead !=
+      sizeof(PersistedState) ||
+    !validateState()
   ) {
-    Serial.println("Storico non valido: inizializzazione");
+    Serial.println(
+      "Storico non valido: "
+      "verrà reinizializzato"
+    );
+
+    LittleFS.remove(
+      "/history.bin"
+    );
+
     resetState();
     return false;
   }
 
-  if (
-    state.hourlyCount > HOURLY_POINTS ||
-    state.hourlyHead >= HOURLY_POINTS ||
-    state.dailyCount > DAILY_POINTS ||
-    state.dailyHead >= DAILY_POINTS
-  ) {
-    Serial.println("Indici dello storico non validi: inizializzazione");
-    resetState();
-    return false;
-  }
+  Serial.print(
+    "Storico caricato: "
+  );
 
-  Serial.print("Storico caricato: ");
-  Serial.print(state.hourlyCount);
-  Serial.print(" valori orari, ");
-  Serial.print(state.dailyCount);
-  Serial.println(" valori giornalieri");
+  Serial.print(
+    state.quarterHourCount
+  );
+
+  Serial.print(
+    " intervalli da 15 minuti, "
+  );
+
+  Serial.print(
+    state.dailyCount
+  );
+
+  Serial.println(
+    " intervalli giornalieri"
+  );
 
   return true;
 }
 
 bool saveState() {
-  state.magic = STORAGE_MAGIC;
-  state.version = STORAGE_VERSION;
-  state.structSize = sizeof(PersistedState);
+  state.magic =
+    STORAGE_MAGIC;
 
-  File file = LittleFS.open("/history.tmp", "w");
+  state.version =
+    STORAGE_VERSION;
+
+  state.structSize =
+    sizeof(PersistedState);
+
+  File file =
+    LittleFS.open(
+      "/history.tmp",
+      "w"
+    );
 
   if (!file) {
-    Serial.println("Errore apertura /history.tmp");
+    Serial.println(
+      "Errore apertura /history.tmp"
+    );
+
     return false;
   }
 
-  size_t bytesWritten = file.write(
-    reinterpret_cast<const uint8_t *>(&state),
-    sizeof(PersistedState)
-  );
+  size_t bytesWritten =
+    file.write(
+      reinterpret_cast<const uint8_t *>(
+        &state
+      ),
+      sizeof(PersistedState)
+    );
 
   file.flush();
   file.close();
 
-  if (bytesWritten != sizeof(PersistedState)) {
-    Serial.println("Scrittura incompleta dello storico");
-    LittleFS.remove("/history.tmp");
+  if (
+    bytesWritten !=
+    sizeof(PersistedState)
+  ) {
+    Serial.println(
+      "Scrittura incompleta dello storico"
+    );
+
+    LittleFS.remove(
+      "/history.tmp"
+    );
+
     return false;
   }
 
-  LittleFS.remove("/history.bin");
+  LittleFS.remove(
+    "/history.bin"
+  );
 
-  if (!LittleFS.rename("/history.tmp", "/history.bin")) {
-    Serial.println("Errore rinomina dello storico");
+  if (
+    !LittleFS.rename(
+      "/history.tmp",
+      "/history.bin"
+    )
+  ) {
+    Serial.println(
+      "Errore rinomina dello storico"
+    );
+
     return false;
   }
 
   historyDirty = false;
   forceHistorySave = false;
-  lastHistorySaveUs = esp_timer_get_time();
 
-  Serial.println("Storico salvato su LittleFS");
+  lastHistorySaveUs =
+    esp_timer_get_time();
+
+  Serial.println(
+    "Storico salvato su LittleFS"
+  );
+
   return true;
 }
 
-void markHistoryDirty(bool immediate = false) {
+void markHistoryDirty(
+  bool immediate = false
+) {
   historyDirty = true;
 
   if (immediate) {
@@ -350,59 +526,68 @@ void markHistoryDirty(bool immediate = false) {
 }
 
 // ======================================================
-// BUFFER CIRCOLARI
+// ARRAY STORICI
 // ======================================================
 
-void pushHistoryPoint(
+void appendHistoryPoint(
   HistoryPoint *buffer,
   size_t capacity,
-  uint8_t &count,
-  uint8_t &head,
+  uint16_t &count,
   const HistoryPoint &point
 ) {
   if (count > 0) {
-    size_t newestIndex = (head + capacity - 1) % capacity;
-    HistoryPoint &newest = buffer[newestIndex];
+    HistoryPoint &last =
+      buffer[count - 1];
 
-    if (newest.bucketStartLocal == point.bucketStartLocal) {
-      newest = point;
+    if (
+      last.bucketStartLocal ==
+      point.bucketStartLocal
+    ) {
+      last = point;
       return;
     }
 
-    // Evita di inserire punti fuori ordine in seguito
-    // a una correzione indietro dell'orologio.
-    if (point.bucketStartLocal < newest.bucketStartLocal) {
+    if (
+      point.bucketStartLocal <
+      last.bucketStartLocal
+    ) {
       return;
     }
   }
-
-  buffer[head] = point;
-  head = static_cast<uint8_t>((head + 1) % capacity);
 
   if (count < capacity) {
+    buffer[count] = point;
     count++;
+    return;
   }
+
+  memmove(
+    &buffer[0],
+    &buffer[1],
+    (capacity - 1) *
+      sizeof(HistoryPoint)
+  );
+
+  buffer[capacity - 1] =
+    point;
 }
 
 bool findHistoryPoint(
   const HistoryPoint *buffer,
-  size_t capacity,
-  uint8_t count,
-  uint8_t head,
+  uint16_t count,
   uint32_t bucketStart,
   HistoryPoint &result
 ) {
-  if (count == 0) {
-    return false;
-  }
-
-  size_t oldestIndex = (head + capacity - count) % capacity;
-
-  for (size_t i = 0; i < count; i++) {
-    size_t index = (oldestIndex + i) % capacity;
-
-    if (buffer[index].bucketStartLocal == bucketStart) {
-      result = buffer[index];
+  for (
+    uint16_t i = 0;
+    i < count;
+    i++
+  ) {
+    if (
+      buffer[i].bucketStartLocal ==
+      bucketStart
+    ) {
+      result = buffer[i];
       return true;
     }
   }
@@ -411,12 +596,22 @@ bool findHistoryPoint(
 }
 
 // ======================================================
-// AGGREGAZIONE
+// MEDIE
 // ======================================================
 
-void startAccumulator(Accumulator &accumulator, uint32_t bucketStart) {
-  memset(&accumulator, 0, sizeof(accumulator));
-  accumulator.bucketStartLocal = bucketStart;
+void startAccumulator(
+  Accumulator &accumulator,
+  uint32_t bucketStart
+) {
+  memset(
+    &accumulator,
+    0,
+    sizeof(accumulator)
+  );
+
+  accumulator.bucketStartLocal =
+    bucketStart;
+
   accumulator.active = 1;
 }
 
@@ -427,115 +622,213 @@ void addToAccumulator(
   float humidity,
   float pressure
 ) {
-  accumulator.temperatureSum += temperature;
+  accumulator.temperatureSum +=
+    temperature;
+
   accumulator.temperatureCount++;
 
   if (humidityValid) {
-    accumulator.humiditySum += humidity;
+    accumulator.humiditySum +=
+      humidity;
+
     accumulator.humidityCount++;
   }
 
-  accumulator.pressureSum += pressure;
+  accumulator.pressureSum +=
+    pressure;
+
   accumulator.pressureCount++;
 }
 
-HistoryPoint pointFromAccumulator(const Accumulator &accumulator) {
+HistoryPoint pointFromAccumulator(
+  const Accumulator &accumulator
+) {
   HistoryPoint point = {};
-  point.bucketStartLocal = accumulator.bucketStartLocal;
 
-  if (accumulator.temperatureCount > 0) {
-    point.temperature = static_cast<float>(
-      accumulator.temperatureSum / accumulator.temperatureCount
-    );
-    point.validFlags |= VALUE_TEMP;
+  point.bucketStartLocal =
+    accumulator.bucketStartLocal;
+
+  if (
+    accumulator.temperatureCount > 0
+  ) {
+    point.temperature =
+      static_cast<float>(
+        accumulator.temperatureSum /
+        accumulator.temperatureCount
+      );
+
+    point.validFlags |=
+      VALUE_TEMP;
   }
 
-  if (accumulator.humidityCount > 0) {
-    point.humidity = static_cast<float>(
-      accumulator.humiditySum / accumulator.humidityCount
-    );
-    point.validFlags |= VALUE_HUM;
+  if (
+    accumulator.humidityCount > 0
+  ) {
+    point.humidity =
+      static_cast<float>(
+        accumulator.humiditySum /
+        accumulator.humidityCount
+      );
+
+    point.validFlags |=
+      VALUE_HUM;
   }
 
-  if (accumulator.pressureCount > 0) {
-    point.pressure = static_cast<float>(
-      accumulator.pressureSum / accumulator.pressureCount
-    );
-    point.validFlags |= VALUE_PRESS;
+  if (
+    accumulator.pressureCount > 0
+  ) {
+    point.pressure =
+      static_cast<float>(
+        accumulator.pressureSum /
+        accumulator.pressureCount
+      );
+
+    point.validFlags |=
+      VALUE_PRESS;
   }
 
   return point;
 }
 
-void finalizeHour() {
-  if (!state.currentHour.active) {
+void finalizeQuarterHour() {
+  if (
+    !state.currentQuarterHour.active
+  ) {
     return;
   }
 
-  HistoryPoint point = pointFromAccumulator(state.currentHour);
+  HistoryPoint point =
+    pointFromAccumulator(
+      state.currentQuarterHour
+    );
 
   if (point.validFlags != 0) {
-    pushHistoryPoint(
-      state.hourly,
-      HOURLY_POINTS,
-      state.hourlyCount,
-      state.hourlyHead,
+    appendHistoryPoint(
+      state.quarterHour,
+      QUARTER_HOUR_POINTS,
+      state.quarterHourCount,
       point
     );
   }
 
-  memset(&state.currentHour, 0, sizeof(state.currentHour));
+  memset(
+    &state.currentQuarterHour,
+    0,
+    sizeof(state.currentQuarterHour)
+  );
+
   markHistoryDirty(true);
 }
 
 void finalizeDay() {
-  if (!state.currentDay.active) {
+  if (
+    !state.currentDay.active
+  ) {
     return;
   }
 
-  HistoryPoint point = pointFromAccumulator(state.currentDay);
+  HistoryPoint point =
+    pointFromAccumulator(
+      state.currentDay
+    );
 
   if (point.validFlags != 0) {
-    pushHistoryPoint(
+    appendHistoryPoint(
       state.daily,
       DAILY_POINTS,
       state.dailyCount,
-      state.dailyHead,
       point
     );
   }
 
-  memset(&state.currentDay, 0, sizeof(state.currentDay));
+  memset(
+    &state.currentDay,
+    0,
+    sizeof(state.currentDay)
+  );
+
   markHistoryDirty(true);
 }
 
-void updateAccumulatorForBucket(
-  Accumulator &accumulator,
+void updateQuarterHourAccumulator(
   uint32_t bucketStart,
-  bool hourly,
   float temperature,
   bool humidityValid,
   float humidity,
   float pressure
 ) {
-  if (!accumulator.active) {
-    startAccumulator(accumulator, bucketStart);
-  } else if (bucketStart > accumulator.bucketStartLocal) {
-    if (hourly) {
-      finalizeHour();
-      startAccumulator(state.currentHour, bucketStart);
-    } else {
-      finalizeDay();
-      startAccumulator(state.currentDay, bucketStart);
-    }
-  } else if (bucketStart < accumulator.bucketStartLocal) {
-    // L'orologio del browser è stato corretto all'indietro.
-    // Si riparte dal nuovo intervallo senza creare punti fuori ordine.
-    startAccumulator(accumulator, bucketStart);
+  if (
+    !state.currentQuarterHour.active
+  ) {
+    startAccumulator(
+      state.currentQuarterHour,
+      bucketStart
+    );
+  } else if (
+    bucketStart >
+    state.currentQuarterHour.bucketStartLocal
+  ) {
+    finalizeQuarterHour();
+
+    startAccumulator(
+      state.currentQuarterHour,
+      bucketStart
+    );
+  } else if (
+    bucketStart <
+    state.currentQuarterHour.bucketStartLocal
+  ) {
+    startAccumulator(
+      state.currentQuarterHour,
+      bucketStart
+    );
   }
 
   addToAccumulator(
-    accumulator,
+    state.currentQuarterHour,
+    temperature,
+    humidityValid,
+    humidity,
+    pressure
+  );
+}
+
+void updateDayAccumulator(
+  uint32_t bucketStart,
+  float temperature,
+  bool humidityValid,
+  float humidity,
+  float pressure
+) {
+  if (
+    !state.currentDay.active
+  ) {
+    startAccumulator(
+      state.currentDay,
+      bucketStart
+    );
+  } else if (
+    bucketStart >
+    state.currentDay.bucketStartLocal
+  ) {
+    finalizeDay();
+
+    startAccumulator(
+      state.currentDay,
+      bucketStart
+    );
+  } else if (
+    bucketStart <
+    state.currentDay.bucketStartLocal
+  ) {
+    startAccumulator(
+      state.currentDay,
+      bucketStart
+    );
+  }
+
+  addToAccumulator(
+    state.currentDay,
     temperature,
     humidityValid,
     humidity,
@@ -548,146 +841,240 @@ void rolloverAccumulatorsIfNeeded() {
     return;
   }
 
-  uint32_t nowLocal = currentLocalEpoch();
-  uint32_t hourStart = (nowLocal / 3600UL) * 3600UL;
-  uint32_t dayStart = (nowLocal / 86400UL) * 86400UL;
+  uint32_t nowLocal =
+    currentLocalEpoch();
+
+  uint32_t quarterStart =
+    (
+      nowLocal /
+      QUARTER_HOUR_SECONDS
+    ) *
+    QUARTER_HOUR_SECONDS;
+
+  uint32_t dayStart =
+    (
+      nowLocal /
+      DAY_SECONDS
+    ) *
+    DAY_SECONDS;
 
   if (
-    state.currentHour.active &&
-    hourStart > state.currentHour.bucketStartLocal
+    state.currentQuarterHour.active &&
+    quarterStart >
+      state.currentQuarterHour
+        .bucketStartLocal
   ) {
-    finalizeHour();
+    finalizeQuarterHour();
   }
 
   if (
     state.currentDay.active &&
-    dayStart > state.currentDay.bucketStartLocal
+    dayStart >
+      state.currentDay
+        .bucketStartLocal
   ) {
     finalizeDay();
   }
 }
 
 bool getPointForBucket(
-  bool hourly,
+  bool quarterHour,
   uint32_t bucketStart,
   HistoryPoint &result
 ) {
-  bool found;
+  if (quarterHour) {
+    if (
+      state.currentQuarterHour.active &&
+      state.currentQuarterHour
+        .bucketStartLocal ==
+      bucketStart
+    ) {
+      result =
+        pointFromAccumulator(
+          state.currentQuarterHour
+        );
 
-  if (hourly) {
-    found = findHistoryPoint(
-      state.hourly,
-      HOURLY_POINTS,
-      state.hourlyCount,
-      state.hourlyHead,
+      return
+        result.validFlags != 0;
+    }
+
+    return findHistoryPoint(
+      state.quarterHour,
+      state.quarterHourCount,
       bucketStart,
       result
     );
-
-    if (
-      state.currentHour.active &&
-      state.currentHour.bucketStartLocal == bucketStart
-    ) {
-      result = pointFromAccumulator(state.currentHour);
-      return result.validFlags != 0;
-    }
-  } else {
-    found = findHistoryPoint(
-      state.daily,
-      DAILY_POINTS,
-      state.dailyCount,
-      state.dailyHead,
-      bucketStart,
-      result
-    );
-
-    if (
-      state.currentDay.active &&
-      state.currentDay.bucketStartLocal == bucketStart
-    ) {
-      result = pointFromAccumulator(state.currentDay);
-      return result.validFlags != 0;
-    }
   }
 
-  return found;
+  if (
+    state.currentDay.active &&
+    state.currentDay
+      .bucketStartLocal ==
+    bucketStart
+  ) {
+    result =
+      pointFromAccumulator(
+        state.currentDay
+      );
+
+    return
+      result.validFlags != 0;
+  }
+
+  return findHistoryPoint(
+    state.daily,
+    state.dailyCount,
+    bucketStart,
+    result
+  );
 }
 
-void processMeasurement(const ReceivedMeasurement &measurement) {
-  Serial.println();
-  Serial.println("======================================");
+// ======================================================
+// ELABORAZIONE MISURA
+// ======================================================
 
-  Serial.print("Ricevuto da MAC: ");
-  stampaMacBytes(measurement.sourceMac);
+void processMeasurement(
+  const ReceivedMeasurement &measurement
+) {
+  Serial.println();
+
+  Serial.println(
+    "======================================"
+  );
+
+  Serial.print(
+    "Ricevuto da MAC: "
+  );
+
+  stampaMacBytes(
+    measurement.sourceMac
+  );
+
   Serial.println();
 
   Serial.print("Nodo: TX");
   Serial.println(NODE_TX1);
 
   Serial.print("Sensore: ");
-  Serial.println(nomeSensore(measurement.sensorType));
+
+  Serial.println(
+    nomeSensore(
+      measurement.sensorType
+    )
+  );
 
   Serial.print("Sequenza: ");
-  Serial.println(measurement.seq);
+  Serial.println(
+    measurement.seq
+  );
 
   Serial.print("Temperatura: ");
-  Serial.print(measurement.temperature, 2);
+
+  Serial.print(
+    measurement.temperature,
+    2
+  );
+
   Serial.println(" °C");
 
-  if (measurement.humidityValid) {
+  if (
+    measurement.humidityValid
+  ) {
     Serial.print("Umidità: ");
-    Serial.print(measurement.humidity, 2);
+
+    Serial.print(
+      measurement.humidity,
+      2
+    );
+
     Serial.println(" %");
   } else {
-    Serial.println("Umidità: non disponibile");
+    Serial.println(
+      "Umidità: non disponibile"
+    );
   }
 
   Serial.print("Pressione: ");
-  Serial.print(measurement.pressure, 2);
+
+  Serial.print(
+    measurement.pressure,
+    2
+  );
+
   Serial.println(" hPa");
 
-  latestMeasurement.seq = measurement.seq;
-  latestMeasurement.temperature = measurement.temperature;
-  latestMeasurement.humidity = measurement.humidity;
-  latestMeasurement.pressure = measurement.pressure;
-  latestMeasurement.sensorType = measurement.sensorType;
-  latestMeasurement.humidityValid = measurement.humidityValid;
-  latestMeasurement.valid = 1;
-  latestMeasurement.localEpoch = clockValid ? currentLocalEpoch() : 0;
+  latestMeasurement.seq =
+    measurement.seq;
 
-  if (!clockValid) {
-    Serial.println(
-      "Misura visualizzabile, ma non archiviata: "
-      "ora non ancora ricevuta dal browser"
+  latestMeasurement.temperature =
+    measurement.temperature;
+
+  latestMeasurement.humidity =
+    measurement.humidity;
+
+  latestMeasurement.pressure =
+    measurement.pressure;
+
+  latestMeasurement.sensorType =
+    measurement.sensorType;
+
+  latestMeasurement.humidityValid =
+    measurement.humidityValid;
+
+  latestMeasurement.valid = 1;
+
+  latestMeasurement.localEpoch =
+    clockValid
+      ? currentLocalEpoch()
+      : 0;
+
+  if (clockValid) {
+    uint32_t nowLocal =
+      currentLocalEpoch();
+
+    uint32_t quarterStart =
+      (
+        nowLocal /
+        QUARTER_HOUR_SECONDS
+      ) *
+      QUARTER_HOUR_SECONDS;
+
+    uint32_t dayStart =
+      (
+        nowLocal /
+        DAY_SECONDS
+      ) *
+      DAY_SECONDS;
+
+    updateQuarterHourAccumulator(
+      quarterStart,
+      measurement.temperature,
+      measurement.humidityValid,
+      measurement.humidity,
+      measurement.pressure
     );
-    return;
+
+    updateDayAccumulator(
+      dayStart,
+      measurement.temperature,
+      measurement.humidityValid,
+      measurement.humidity,
+      measurement.pressure
+    );
+
+    markHistoryDirty(false);
+  } else {
+    Serial.println(
+      "Misura non archiviata: "
+      "ora non ancora ricevuta "
+      "dal browser"
+    );
   }
 
-  uint32_t nowLocal = currentLocalEpoch();
-  uint32_t hourStart = (nowLocal / 3600UL) * 3600UL;
-  uint32_t dayStart = (nowLocal / 86400UL) * 86400UL;
-
-  updateAccumulatorForBucket(
-    state.currentHour,
-    hourStart,
-    true,
-    measurement.temperature,
-    measurement.humidityValid,
-    measurement.humidity,
-    measurement.pressure
+  // Avvisa immediatamente i browser collegati.
+  webSocket.broadcastTXT(
+    "measurement"
   );
-
-  updateAccumulatorForBucket(
-    state.currentDay,
-    dayStart,
-    false,
-    measurement.temperature,
-    measurement.humidityValid,
-    measurement.humidity,
-    measurement.pressure
-  );
-
-  markHistoryDirty(false);
 }
 
 // ======================================================
@@ -699,66 +1086,132 @@ void onDataRecv(
   const uint8_t *incomingData,
   int len
 ) {
-  if (len != static_cast<int>(sizeof(PacketEnvironment))) {
+  espNowCallbackCount++;
+  espNowLastPacketLength = len;
+
+  if (
+    len !=
+    static_cast<int>(
+      sizeof(PacketEnvironment)
+    )
+  ) {
     return;
   }
 
   PacketEnvironment packet;
-  memcpy(&packet, incomingData, sizeof(packet));
+
+  memcpy(
+    &packet,
+    incomingData,
+    sizeof(packet)
+  );
 
   if (
     packet.nodeId != NODE_TX1 ||
-    packet.payloadType != TYPE_ENVIRONMENT
+    packet.payloadType !=
+      TYPE_ENVIRONMENT
   ) {
     return;
   }
 
   ReceivedMeasurement measurement = {};
 
-  memcpy(measurement.sourceMac, recvInfo->src_addr, 6);
+  memcpy(
+    measurement.sourceMac,
+    recvInfo->src_addr,
+    6
+  );
 
-  measurement.seq = packet.seq;
-  measurement.temperature = packet.temp_x100 / 100.0f;
-  measurement.pressure = packet.press_x100 / 100.0f;
-  measurement.sensorType = packet.sensorType;
+  measurement.seq =
+    packet.seq;
 
-  if (packet.hum_x100 >= 0) {
-    measurement.humidity = packet.hum_x100 / 100.0f;
+  measurement.temperature =
+    packet.temp_x100 /
+    100.0f;
+
+  measurement.pressure =
+    packet.press_x100 /
+    100.0f;
+
+  measurement.sensorType =
+    packet.sensorType;
+
+  if (
+    packet.hum_x100 >= 0
+  ) {
+    measurement.humidity =
+      packet.hum_x100 /
+      100.0f;
+
     measurement.humidityValid = 1;
   }
 
-  if (xQueueSend(receivedQueue, &measurement, 0) != pdTRUE) {
-    // Se la coda è piena, elimina la misura più vecchia.
+  if (
+    xQueueSend(
+      receivedQueue,
+      &measurement,
+      0
+    ) != pdTRUE
+  ) {
     ReceivedMeasurement discarded;
-    xQueueReceive(receivedQueue, &discarded, 0);
-    xQueueSend(receivedQueue, &measurement, 0);
+
+    xQueueReceive(
+      receivedQueue,
+      &discarded,
+      0
+    );
+
+    xQueueSend(
+      receivedQueue,
+      &measurement,
+      0
+    );
   }
 }
 
 // ======================================================
-// JSON PER I GRAFICI
+// CREAZIONE JSON
 // ======================================================
 
 void appendLabelsArray(
   String &json,
-  bool hourly,
+  bool quarterHour,
   uint32_t firstBucket,
   size_t pointCount
 ) {
   json += "\"labels\":[";
 
-  uint32_t step = hourly ? 3600UL : 86400UL;
-  const char *format = hourly ? "%d/%m %H:00" : "%d/%m";
+  uint32_t step =
+    quarterHour
+      ? QUARTER_HOUR_SECONDS
+      : DAY_SECONDS;
 
-  for (size_t i = 0; i < pointCount; i++) {
+  const char *format =
+    quarterHour
+      ? "%d/%m %H:%M"
+      : "%d/%m";
+
+  for (
+    size_t i = 0;
+    i < pointCount;
+    i++
+  ) {
     if (i > 0) {
       json += ',';
     }
 
-    uint32_t bucket = firstBucket + static_cast<uint32_t>(i) * step;
+    uint32_t bucket =
+      firstBucket +
+      static_cast<uint32_t>(i) *
+      step;
 
     json += '"';
-    json += formatLocalEpoch(bucket, format);
+
+    json += formatLocalEpoch(
+      bucket,
+      format
+    );
+
     json += '"';
   }
 
@@ -768,7 +1221,7 @@ void appendLabelsArray(
 void appendMetricArray(
   String &json,
   const char *name,
-  bool hourly,
+  bool quarterHour,
   uint32_t firstBucket,
   size_t pointCount,
   uint8_t metricFlag
@@ -777,29 +1230,65 @@ void appendMetricArray(
   json += name;
   json += "\":[";
 
-  uint32_t step = hourly ? 3600UL : 86400UL;
+  uint32_t step =
+    quarterHour
+      ? QUARTER_HOUR_SECONDS
+      : DAY_SECONDS;
 
-  for (size_t i = 0; i < pointCount; i++) {
+  for (
+    size_t i = 0;
+    i < pointCount;
+    i++
+  ) {
     if (i > 0) {
       json += ',';
     }
 
-    uint32_t bucket = firstBucket + static_cast<uint32_t>(i) * step;
+    uint32_t bucket =
+      firstBucket +
+      static_cast<uint32_t>(i) *
+      step;
+
     HistoryPoint point = {};
 
-    if (!getPointForBucket(hourly, bucket, point)) {
+    if (
+      !getPointForBucket(
+        quarterHour,
+        bucket,
+        point
+      )
+    ) {
       json += "null";
       continue;
     }
 
-    bool valid = (point.validFlags & metricFlag) != 0;
+    bool valid =
+      (
+        point.validFlags &
+        metricFlag
+      ) != 0;
 
-    if (metricFlag == VALUE_TEMP) {
-      json += jsonFloat(point.temperature, valid);
-    } else if (metricFlag == VALUE_HUM) {
-      json += jsonFloat(point.humidity, valid);
+    if (
+      metricFlag ==
+      VALUE_TEMP
+    ) {
+      json += jsonFloat(
+        point.temperature,
+        valid
+      );
+    } else if (
+      metricFlag ==
+      VALUE_HUM
+    ) {
+      json += jsonFloat(
+        point.humidity,
+        valid
+      );
     } else {
-      json += jsonFloat(point.pressure, valid);
+      json += jsonFloat(
+        point.pressure,
+        valid
+      );
     }
   }
 
@@ -809,39 +1298,55 @@ void appendMetricArray(
 void appendWindowJson(
   String &json,
   const char *name,
-  bool hourly,
+  bool quarterHour,
   uint32_t currentBucket,
   size_t pointCount
 ) {
-  uint32_t step = hourly ? 3600UL : 86400UL;
+  uint32_t step =
+    quarterHour
+      ? QUARTER_HOUR_SECONDS
+      : DAY_SECONDS;
+
   uint32_t firstBucket =
-    currentBucket - static_cast<uint32_t>(pointCount - 1) * step;
+    currentBucket -
+    static_cast<uint32_t>(
+      pointCount - 1
+    ) *
+    step;
 
   json += ",\"";
   json += name;
   json += "\":{";
 
-  appendLabelsArray(json, hourly, firstBucket, pointCount);
+  appendLabelsArray(
+    json,
+    quarterHour,
+    firstBucket,
+    pointCount
+  );
+
   appendMetricArray(
     json,
     "temperature",
-    hourly,
+    quarterHour,
     firstBucket,
     pointCount,
     VALUE_TEMP
   );
+
   appendMetricArray(
     json,
     "humidity",
-    hourly,
+    quarterHour,
     firstBucket,
     pointCount,
     VALUE_HUM
   );
+
   appendMetricArray(
     json,
     "pressure",
-    hourly,
+    quarterHour,
     firstBucket,
     pointCount,
     VALUE_PRESS
@@ -852,31 +1357,59 @@ void appendWindowJson(
 
 String buildHistoryJson() {
   String json;
-  json.reserve(9000);
+
+  json.reserve(18000);
 
   json += '{';
-  json += "\"timeValid\":";
-  json += clockValid ? "true" : "false";
 
-  json += ",\"utcOffsetMinutes\":";
-  json += String(browserUtcOffsetMinutes);
+  json += "\"timeValid\":";
+
+  json +=
+    clockValid
+      ? "true"
+      : "false";
+
+  json +=
+    ",\"utcOffsetMinutes\":";
+
+  json += String(
+    browserUtcOffsetMinutes
+  );
 
   if (clockValid) {
-    uint32_t nowLocal = currentLocalEpoch();
+    uint32_t nowLocal =
+      currentLocalEpoch();
 
-    json += ",\"deviceTime\":\"";
-    json += formatLocalEpoch(nowLocal, "%d/%m/%Y %H:%M:%S");
+    json +=
+      ",\"deviceTime\":\"";
+
+    json += formatLocalEpoch(
+      nowLocal,
+      "%d/%m/%Y %H:%M:%S"
+    );
+
     json += '"';
 
-    uint32_t currentHour = (nowLocal / 3600UL) * 3600UL;
-    uint32_t currentDay = (nowLocal / 86400UL) * 86400UL;
+    uint32_t currentQuarter =
+      (
+        nowLocal /
+        QUARTER_HOUR_SECONDS
+      ) *
+      QUARTER_HOUR_SECONDS;
+
+    uint32_t currentDay =
+      (
+        nowLocal /
+        DAY_SECONDS
+      ) *
+      DAY_SECONDS;
 
     appendWindowJson(
       json,
-      "hourly",
+      "quarterHour",
       true,
-      currentHour,
-      HOURLY_POINTS
+      currentQuarter,
+      QUARTER_HOUR_POINTS
     );
 
     appendWindowJson(
@@ -887,42 +1420,76 @@ String buildHistoryJson() {
       DAILY_POINTS
     );
   } else {
-    json += ",\"deviceTime\":null";
-    json += ",\"hourly\":null";
-    json += ",\"daily\":null";
+    json +=
+      ",\"deviceTime\":null";
+
+    json +=
+      ",\"quarterHour\":null";
+
+    json +=
+      ",\"daily\":null";
   }
 
   json += ",\"latest\":{";
-  json += "\"valid\":";
-  json += latestMeasurement.valid ? "true" : "false";
 
-  if (latestMeasurement.valid) {
+  json += "\"valid\":";
+
+  json +=
+    latestMeasurement.valid
+      ? "true"
+      : "false";
+
+  if (
+    latestMeasurement.valid
+  ) {
     json += ",\"sequence\":";
-    json += String(latestMeasurement.seq);
+
+    json += String(
+      latestMeasurement.seq
+    );
 
     json += ",\"sensor\":\"";
-    json += nomeSensore(latestMeasurement.sensorType);
+
+    json += nomeSensore(
+      latestMeasurement.sensorType
+    );
+
     json += '"';
 
     json += ",\"temperature\":";
-    json += jsonFloat(latestMeasurement.temperature, true);
+
+    json += jsonFloat(
+      latestMeasurement.temperature,
+      true
+    );
 
     json += ",\"humidity\":";
+
     json += jsonFloat(
       latestMeasurement.humidity,
       latestMeasurement.humidityValid
     );
 
     json += ",\"pressure\":";
-    json += jsonFloat(latestMeasurement.pressure, true);
+
+    json += jsonFloat(
+      latestMeasurement.pressure,
+      true
+    );
 
     json += ",\"time\":";
-    if (latestMeasurement.localEpoch > 0) {
+
+    if (
+      latestMeasurement.localEpoch >
+      0
+    ) {
       json += '"';
+
       json += formatLocalEpoch(
         latestMeasurement.localEpoch,
         "%d/%m/%Y %H:%M:%S"
       );
+
       json += '"';
     } else {
       json += "null";
@@ -931,12 +1498,30 @@ String buildHistoryJson() {
 
   json += '}';
 
+  json += ",\"espNow\":{";
+
+  json += "\"callbackCount\":";
+
+  json += String(
+    espNowCallbackCount
+  );
+
+  json +=
+    ",\"lastPacketLength\":";
+
+  json += String(
+    espNowLastPacketLength
+  );
+
   json += '}';
+
+  json += '}';
+
   return json;
 }
 
 // ======================================================
-// SERVER WEB
+// SERVER HTTP
 // ======================================================
 
 void sendFileFromLittleFS(
@@ -944,24 +1529,42 @@ void sendFileFromLittleFS(
   const char *contentType,
   bool cacheLong
 ) {
-  File file = LittleFS.open(path, "r");
+  File file =
+    LittleFS.open(
+      path,
+      "r"
+    );
 
   if (!file) {
     server.send(
       404,
       "text/plain; charset=utf-8",
-      String("File non trovato: ") + path
+      String(
+        "File non trovato: "
+      ) +
+      path
     );
+
     return;
   }
 
   if (cacheLong) {
-    server.sendHeader("Cache-Control", "public, max-age=31536000");
+    server.sendHeader(
+      "Cache-Control",
+      "public, max-age=31536000"
+    );
   } else {
-    server.sendHeader("Cache-Control", "no-cache");
+    server.sendHeader(
+      "Cache-Control",
+      "no-cache"
+    );
   }
 
-  server.streamFile(file, contentType);
+  server.streamFile(
+    file,
+    contentType
+  );
+
   file.close();
 }
 
@@ -982,57 +1585,93 @@ void handleChartJs() {
 }
 
 void handleTimeSync() {
-  if (!server.hasArg("epoch") || !server.hasArg("offset")) {
+  if (
+    !server.hasArg("epoch") ||
+    !server.hasArg("offset")
+  ) {
     server.send(
       400,
       "application/json",
-      "{\"ok\":false,\"error\":\"Parametri mancanti\"}"
+      "{\"ok\":false,"
+      "\"error\":\"Parametri mancanti\"}"
     );
+
     return;
   }
 
-  uint32_t utcEpoch = strtoul(server.arg("epoch").c_str(), nullptr, 10);
-  int32_t offsetMinutes = server.arg("offset").toInt();
+  uint32_t utcEpoch =
+    strtoul(
+      server.arg("epoch").c_str(),
+      nullptr,
+      10
+    );
 
-  // Controlli volutamente ampi.
+  int32_t offsetMinutes =
+    server.arg("offset").toInt();
+
   if (
-    utcEpoch < 1609459200UL ||       // 01/01/2021
+    utcEpoch < 1609459200UL ||
     offsetMinutes < -840 ||
     offsetMinutes > 840
   ) {
     server.send(
       400,
       "application/json",
-      "{\"ok\":false,\"error\":\"Data o fuso non validi\"}"
+      "{\"ok\":false,"
+      "\"error\":\"Data o fuso non validi\"}"
     );
+
     return;
   }
 
-  setClockFromBrowser(utcEpoch, offsetMinutes);
+  setClockFromBrowser(
+    utcEpoch,
+    offsetMinutes
+  );
+
   rolloverAccumulatorsIfNeeded();
 
-  String response = "{\"ok\":true,\"deviceTime\":\"";
+  String response =
+    "{\"ok\":true,"
+    "\"deviceTime\":\"";
+
   response += formatLocalEpoch(
     currentLocalEpoch(),
     "%d/%m/%Y %H:%M:%S"
   );
+
   response += "\"}";
 
-  server.send(200, "application/json", response);
+  server.send(
+    200,
+    "application/json",
+    response
+  );
 
-  Serial.print("Ora sincronizzata dal browser: ");
+  Serial.print(
+    "Ora sincronizzata dal browser: "
+  );
+
   Serial.println(
     formatLocalEpoch(
       currentLocalEpoch(),
       "%d/%m/%Y %H:%M:%S"
     )
   );
+
+  webSocket.broadcastTXT(
+    "refresh"
+  );
 }
 
 void handleHistoryApi() {
   rolloverAccumulatorsIfNeeded();
 
-  server.sendHeader("Cache-Control", "no-cache");
+  server.sendHeader(
+    "Cache-Control",
+    "no-cache"
+  );
+
   server.send(
     200,
     "application/json; charset=utf-8",
@@ -1049,96 +1688,406 @@ void handleNotFound() {
 }
 
 void setupWebServer() {
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/index.html", HTTP_GET, handleRoot);
-  server.on("/chart.min.js", HTTP_GET, handleChartJs);
-  server.on("/api/time", HTTP_POST, handleTimeSync);
-  server.on("/api/history", HTTP_GET, handleHistoryApi);
-  server.onNotFound(handleNotFound);
+  server.on(
+    "/",
+    HTTP_GET,
+    handleRoot
+  );
+
+  server.on(
+    "/index.html",
+    HTTP_GET,
+    handleRoot
+  );
+
+  server.on(
+    "/chart.min.js",
+    HTTP_GET,
+    handleChartJs
+  );
+
+  server.on(
+    "/api/time",
+    HTTP_POST,
+    handleTimeSync
+  );
+
+  server.on(
+    "/api/history",
+    HTTP_GET,
+    handleHistoryApi
+  );
+
+  server.onNotFound(
+    handleNotFound
+  );
 
   server.begin();
-  Serial.println("Server web avviato");
+
+  Serial.print(
+    "Server HTTP avviato sulla porta "
+  );
+
+  Serial.println(
+    HTTP_PORT
+  );
 }
 
 // ======================================================
-// ACCESS POINT ED ESP-NOW
+// SERVER WEBSOCKET
 // ======================================================
 
-bool setupAccessPoint() {
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_AP_STA);
-  delay(200);
+void webSocketEvent(
+  uint8_t clientNumber,
+  WStype_t type,
+  uint8_t *payload,
+  size_t length
+) {
+  switch (type) {
+    case WStype_CONNECTED: {
+      IPAddress clientIp =
+        webSocket.remoteIP(
+          clientNumber
+        );
 
-  // In Italia sono ammessi i canali 1-13.
-  // Impostazione manuale utile per garantire il canale 13.
-  wifi_country_t country = {};
-  country.cc[0] = 'I';
-  country.cc[1] = 'T';
-  country.cc[2] = '\0';
-  country.schan = 1;
-  country.nchan = 13;
-  country.policy = WIFI_COUNTRY_POLICY_MANUAL;
-  esp_wifi_set_country(&country);
+      Serial.print(
+        "WebSocket connesso, client "
+      );
 
-  bool ok = WiFi.softAP(
-    AP_SSID,
-    AP_PASSWORD,
-    ESPNOW_CHANNEL,
-    false,
-    MAX_AP_CLIENTS
+      Serial.print(
+        clientNumber
+      );
+
+      Serial.print(" da ");
+
+      Serial.println(
+        clientIp
+      );
+
+      webSocket.sendTXT(
+        clientNumber,
+        "refresh"
+      );
+
+      break;
+    }
+
+    case WStype_DISCONNECTED:
+      Serial.print(
+        "WebSocket disconnesso, client "
+      );
+
+      Serial.println(
+        clientNumber
+      );
+
+      break;
+
+    case WStype_TEXT:
+      (void)payload;
+      (void)length;
+      break;
+
+    default:
+      break;
+  }
+}
+
+void setupWebSocketServer() {
+  webSocket.begin();
+
+  webSocket.onEvent(
+    webSocketEvent
   );
 
-  uint8_t macSta[6];
-  uint8_t macAp[6];
+  webSocket.enableHeartbeat(
+    15000,
+    3000,
+    2
+  );
 
-  esp_wifi_get_mac(WIFI_IF_STA, macSta);
-  esp_wifi_get_mac(WIFI_IF_AP, macAp);
+  Serial.print(
+    "Server WebSocket avviato sulla porta "
+  );
 
-  Serial.print("MAC STA usato da ESP-NOW: ");
-  stampaMacBytes(macSta);
-  Serial.println();
+  Serial.println(
+    WEBSOCKET_PORT
+  );
+}
 
-  Serial.print("MAC AP usato dalla pagina web: ");
-  stampaMacBytes(macAp);
-  Serial.println();
+// ======================================================
+// WIFI AP+STA ED ESP-NOW
+// ======================================================
 
-  if (!ok) {
+bool setupWiFiAndEspNow() {
+  WiFi.persistent(false);
+
+  WiFi.setAutoReconnect(
+    false
+  );
+
+  /*
+   * Cancella eventuali vecchie credenziali
+   * Station e spegne temporaneamente il Wi-Fi.
+   *
+   * Non verrà chiamato WiFi.begin(),
+   * quindi non ci sarà alcuna connessione
+   * a un router.
+   */
+  WiFi.disconnect(
+    true,
+    true
+  );
+
+  delay(200);
+
+  /*
+   * STA mantiene il vecchio MAC ESP-NOW.
+   * AP crea la rete della pagina web.
+   */
+  bool modeOk =
+    WiFi.mode(
+      WIFI_AP_STA
+    );
+
+  if (!modeOk) {
+    Serial.println(
+      "Errore impostazione modalità "
+      "WIFI_AP_STA"
+    );
+
     return false;
   }
 
   delay(300);
 
-  Serial.print("SSID access point: ");
-  Serial.println(AP_SSID);
+  /*
+   * Abilita esplicitamente i canali
+   * europei da 1 a 13.
+   */
+  wifi_country_t country = {};
 
-  Serial.print("IP pagina web: http://");
-  Serial.println(WiFi.softAPIP());
+  country.cc[0] = 'I';
+  country.cc[1] = 'T';
+  country.cc[2] = '\0';
 
-  Serial.print("MAC AP da usare per ESP-NOW unicast: ");
-  Serial.println(WiFi.softAPmacAddress());
+  country.schan = 1;
+  country.nchan = 13;
 
-  uint8_t primaryChannel = 0;
-  wifi_second_chan_t secondaryChannel = WIFI_SECOND_CHAN_NONE;
+  country.policy =
+    WIFI_COUNTRY_POLICY_MANUAL;
+
+  esp_err_t countryResult =
+    esp_wifi_set_country(
+      &country
+    );
+
+  Serial.print(
+    "Impostazione paese Wi-Fi IT: "
+  );
+
+  Serial.println(
+    esp_err_to_name(
+      countryResult
+    )
+  );
 
   if (
-    esp_wifi_get_channel(
-      &primaryChannel,
-      &secondaryChannel
-    ) == ESP_OK
+    countryResult != ESP_OK
   ) {
-    Serial.print("Canale Wi-Fi/ESP-NOW effettivo: ");
-    Serial.println(primaryChannel);
-  }
-
-  return true;
-}
-
-bool setupEspNow() {
-  if (esp_now_init() != ESP_OK) {
     return false;
   }
 
-  esp_now_register_recv_cb(onDataRecv);
+  /*
+   * WiFi.softAP() imposta direttamente
+   * il canale 13.
+   *
+   * Non viene chiamato esp_wifi_set_channel()
+   * prima dell'avvio dell'AP.
+   */
+  bool apOk =
+    WiFi.softAP(
+      AP_SSID,
+      AP_PASSWORD,
+      ESPNOW_CHANNEL,
+      false,
+      MAX_AP_CLIENTS
+    );
+
+  if (!apOk) {
+    Serial.println(
+      "Errore avvio access point"
+    );
+
+    return false;
+  }
+
+  delay(500);
+
+  // Evita il risparmio energetico Wi-Fi.
+  esp_err_t powerSaveResult =
+    esp_wifi_set_ps(
+      WIFI_PS_NONE
+    );
+
+  Serial.print(
+    "Disattivazione risparmio Wi-Fi: "
+  );
+
+  Serial.println(
+    esp_err_to_name(
+      powerSaveResult
+    )
+  );
+
+  uint8_t actualChannel = 0;
+
+  wifi_second_chan_t secondChannel =
+    WIFI_SECOND_CHAN_NONE;
+
+  esp_err_t channelResult =
+    esp_wifi_get_channel(
+      &actualChannel,
+      &secondChannel
+    );
+
+  if (
+    channelResult != ESP_OK
+  ) {
+    Serial.print(
+      "Errore lettura canale: "
+    );
+
+    Serial.println(
+      esp_err_to_name(
+        channelResult
+      )
+    );
+
+    return false;
+  }
+
+  Serial.print(
+    "Canale Wi-Fi/ESP-NOW effettivo: "
+  );
+
+  Serial.println(
+    actualChannel
+  );
+
+  if (
+    actualChannel !=
+    ESPNOW_CHANNEL
+  ) {
+    Serial.print(
+      "ERRORE: era richiesto il canale "
+    );
+
+    Serial.println(
+      ESPNOW_CHANNEL
+    );
+
+    return false;
+  }
+
+  uint8_t macSta[6];
+  uint8_t macAp[6];
+
+  esp_wifi_get_mac(
+    WIFI_IF_STA,
+    macSta
+  );
+
+  esp_wifi_get_mac(
+    WIFI_IF_AP,
+    macAp
+  );
+
+  Serial.print(
+    "MAC STA usato da ESP-NOW: "
+  );
+
+  stampaMacBytes(
+    macSta
+  );
+
+  Serial.println();
+
+  Serial.print(
+    "MAC AP della pagina web: "
+  );
+
+  stampaMacBytes(
+    macAp
+  );
+
+  Serial.println();
+
+  Serial.print(
+    "SSID access point: "
+  );
+
+  Serial.println(
+    AP_SSID
+  );
+
+  Serial.print(
+    "IP pagina web: http://"
+  );
+
+  Serial.println(
+    WiFi.softAPIP()
+  );
+
+  /*
+   * ESP-NOW viene inizializzato soltanto
+   * dopo che l'AP ha impostato il canale.
+   */
+  esp_err_t espNowResult =
+    esp_now_init();
+
+  if (
+    espNowResult != ESP_OK
+  ) {
+    Serial.print(
+      "Errore esp_now_init(): "
+    );
+
+    Serial.println(
+      esp_err_to_name(
+        espNowResult
+      )
+    );
+
+    return false;
+  }
+
+  espNowResult =
+    esp_now_register_recv_cb(
+      onDataRecv
+    );
+
+  if (
+    espNowResult != ESP_OK
+  ) {
+    Serial.print(
+      "Errore registrazione callback "
+      "ESP-NOW: "
+    );
+
+    Serial.println(
+      esp_err_to_name(
+        espNowResult
+      )
+    );
+
+    return false;
+  }
+
+  Serial.println(
+    "Callback ESP-NOW registrata"
+  );
+
   return true;
 }
 
@@ -1148,53 +2097,78 @@ bool setupEspNow() {
 
 void setup() {
   Serial.begin(115200);
+
   delay(1000);
 
   Serial.println();
+
   Serial.println(
-    "CENTRALE ESP-NOW + ACCESS POINT + STORICO METEO"
+    "CENTRALE ESP-NOW + AP + "
+    "WEBSOCKET + METEO"
   );
 
-  if (!LittleFS.begin(true)) {
-    Serial.println("Errore inizializzazione LittleFS");
+  if (
+    !LittleFS.begin(true)
+  ) {
+    Serial.println(
+      "Errore inizializzazione LittleFS"
+    );
 
     while (true) {
       delay(1000);
     }
   }
 
-  Serial.print("LittleFS totale: ");
-  Serial.print(LittleFS.totalBytes());
-  Serial.print(" byte, usati: ");
-  Serial.print(LittleFS.usedBytes());
-  Serial.println(" byte");
+  Serial.print(
+    "LittleFS totale: "
+  );
+
+  Serial.print(
+    LittleFS.totalBytes()
+  );
+
+  Serial.print(
+    " byte, usati: "
+  );
+
+  Serial.print(
+    LittleFS.usedBytes()
+  );
+
+  Serial.println(
+    " byte"
+  );
 
   loadState();
-  lastHistorySaveUs = esp_timer_get_time();
 
-  receivedQueue = xQueueCreate(
-    8,
-    sizeof(ReceivedMeasurement)
-  );
+  lastHistorySaveUs =
+    esp_timer_get_time();
 
-  if (receivedQueue == nullptr) {
-    Serial.println("Errore creazione coda ricezione");
+  receivedQueue =
+    xQueueCreate(
+      8,
+      sizeof(ReceivedMeasurement)
+    );
+
+  if (
+    receivedQueue == nullptr
+  ) {
+    Serial.println(
+      "Errore creazione coda ricezione"
+    );
 
     while (true) {
       delay(1000);
     }
   }
 
-  if (!setupAccessPoint()) {
-    Serial.println("Errore avvio access point");
-
-    while (true) {
-      delay(1000);
-    }
-  }
-
-  if (!setupEspNow()) {
-    Serial.println("Errore inizializzazione ESP-NOW");
+  if (
+    !setupWiFiAndEspNow()
+  ) {
+    Serial.println(
+      "Errore inizializzazione "
+      "Wi-Fi/ESP-NOW"
+    );
 
     while (true) {
       delay(1000);
@@ -1202,11 +2176,14 @@ void setup() {
   }
 
   setupWebServer();
+  setupWebSocketServer();
 
-  Serial.println("Centrale pronta");
   Serial.println(
-    "Dopo ogni riavvio apri la pagina web almeno una volta "
-    "per impostare data e ora."
+    "Centrale pronta"
+  );
+
+  Serial.println(
+    "Apri http://192.168.4.1/"
   );
 }
 
@@ -1216,6 +2193,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  webSocket.loop();
 
   ReceivedMeasurement measurement;
 
@@ -1226,26 +2204,39 @@ void loop() {
       0
     ) == pdTRUE
   ) {
-    processMeasurement(measurement);
+    processMeasurement(
+      measurement
+    );
   }
 
-  uint32_t nowMs = millis();
+  uint32_t nowMs =
+    millis();
 
-  if (nowMs - lastRolloverCheckMs >= 1000UL) {
-    lastRolloverCheckMs = nowMs;
+  if (
+    nowMs -
+      lastRolloverCheckMs >=
+    1000UL
+  ) {
+    lastRolloverCheckMs =
+      nowMs;
+
     rolloverAccumulatorsIfNeeded();
   }
 
   if (historyDirty) {
-    int64_t nowUs = esp_timer_get_time();
+    int64_t nowUs =
+      esp_timer_get_time();
 
     if (
       forceHistorySave ||
-      nowUs - lastHistorySaveUs >= SAVE_INTERVAL_US
+      nowUs -
+        lastHistorySaveUs >=
+      SAVE_INTERVAL_US
     ) {
       saveState();
     }
   }
 
+  
   delay(2);
 }
